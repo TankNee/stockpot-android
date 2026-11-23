@@ -115,12 +115,16 @@ object Fmt {
 
     fun stamp(): String = Instant.now().toString()
 
+    /**
+     * Material3 的 DatePicker 用的是「UTC 零点」的毫秒数。
+     * 用本地时区换算会让东八区的日期整整差一天。
+     */
     fun epochMillis(date: String): Long = runCatching {
-        LocalDate.parse(date).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        LocalDate.parse(date).atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
     }.getOrDefault(System.currentTimeMillis())
 
     fun fromEpochMillis(millis: Long): String =
-        Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+        Instant.ofEpochMilli(millis).atZone(java.time.ZoneOffset.UTC).toLocalDate().toString()
 
     fun shortDate(date: String): String = runCatching {
         val parsed = LocalDate.parse(date)

@@ -104,7 +104,7 @@ app/src/main/java/cn/neeto/stockpot/
   ui/theme/Theme.kt         暖纸/墨色配色与排版
   ui/components/            卡片、分段控件、日历、环形图、流水行
   ui/screens/               总览 / 流水 / 项目 / 导入 / 设置 / 编辑 / 钱包
-app/src/test/java/…         20 个单元测试：解析、去重、退款、汇总、分类改名、JSON 兼容
+app/src/test/java/…         21 个单元测试：解析、去重、退款、汇总、分类改名、JSON 兼容、日期换算
 ```
 
 ## 构建

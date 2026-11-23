@@ -164,6 +164,14 @@ class LedgerTest {
     }
 
     @Test
+    fun `date picker millis round trip in utc`() {
+        val date = "2026-11-23"
+        assertEquals(date, Fmt.fromEpochMillis(Fmt.epochMillis(date)))
+        // DatePicker 的毫秒是 UTC 零点：东八区的本地零点会少一天
+        assertEquals(0L, Fmt.epochMillis(date) % 86_400_000L)
+    }
+
+    @Test
     fun `parse yuan accepts messy input`() {
         assertEquals(1250L, Fmt.parseYuan("12.5"))
         assertEquals(1250L, Fmt.parseYuan("¥12.50"))
