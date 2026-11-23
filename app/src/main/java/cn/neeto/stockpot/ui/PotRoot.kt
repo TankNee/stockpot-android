@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -51,25 +50,33 @@ import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -208,14 +215,43 @@ fun PotRoot(
             limit = 30,
         )
     }
-    val subtitle = when {
-        route == ROUTE_IMPORT -> "微信 / 支付宝 / iCost / 通用 CSV"
-        route == ROUTE_PROJECTS -> "按一件事看花销，不改账目本身"
-        route == ROUTE_WALLET_KIND -> "账户类型"
-        route == ROUTE_WALLET_EDIT -> "余额自己维护，账本只记录钱的流动"
-        route == ROUTE_STOCKS || route.startsWith(STOCK_ACC_PREFIX) || route.startsWith(STOCK_DETAIL_PREFIX) ->
-            "持仓成本自己维护，行情来自腾讯"
-        else -> activeTab.hint
+    // 顶栏只讲当前这个 tab：进到叠加页时它一边收一边退场，
+    // 叠加页自己的返回头上写着页面名，这里就不用再换一套字。
+    val subtitle = activeTab.hint
+
+    // 大标题的收起进度（0 = 大标题 + 副标题，1 = 只剩一行小标题），每个页面各记一份：
+    // 从别的页面回来还能接着上次的位置，不会突然又撑开。
+    val collapses = remember { mutableStateMapOf<String, Float>() }
+    val routeNow by rememberUpdatedState(route)
+    val collapsePx = with(LocalDensity.current) { HeaderCollapseDistance.toPx() }
+    // 往下滚（手指往上推）就收标题；只有列表已经到顶还在下拉时才把它放回去，
+    // 跟 iOS 的大标题一个脾气，不会滚到一半往回抠一下就弹出来。
+    val headerScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < 0f) {
+                    val key = routeNow
+                    val now = collapses[key] ?: 0f
+                    val next = (now - available.y / collapsePx).coerceIn(0f, 1f)
+                    if (next != now) collapses[key] = next
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (available.y > 0f) {
+                    val key = routeNow
+                    val now = collapses[key] ?: 0f
+                    val next = (now - available.y / collapsePx).coerceIn(0f, 1f)
+                    if (next != now) collapses[key] = next
+                }
+                return Offset.Zero
+            }
+        }
     }
 
     // 进到有股票的页面时顺手拉一次行情；失败就安静着，用最后的价格
@@ -308,337 +344,354 @@ fun PotRoot(
 
     val stateHolder = rememberSaveableStateHolder()
 
-    Scaffold(
-        containerColor = colors.canvas,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = { PotTopBar(subtitle = subtitle) },
-    ) { padding ->
-        // 底栏不占 Scaffold 的位置，浮在内容上面：列表可以滚到胶囊背后，
-        // 左右两侧露出页面内容（BiliPai 那种悬浮效果），而不是一条实心横栏把内容切掉。
-        Box(Modifier.fillMaxSize()) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(padding),
-        ) {
-            AnimatedContent(
-                targetState = route,
-                modifier = Modifier.fillMaxSize(),
-                transitionSpec = {
-                    val forward = routeOrder(targetState) >= routeOrder(initialState)
-                    val enter = slideInHorizontally(
-                        animationSpec = tween(240, easing = FastOutSlowInEasing),
-                    ) { width -> if (forward) width / 8 else -width / 8 } + fadeIn(tween(180))
-                    val exit = slideOutHorizontally(
-                        animationSpec = tween(240, easing = FastOutSlowInEasing),
-                    ) { width -> if (forward) -width / 10 else width / 10 } + fadeOut(tween(150))
-                    enter togetherWith exit
-                },
-                label = "tab",
-            ) { current ->
-                stateHolder.SaveableStateProvider(current) {
-                    when {
-                        current == "overview" -> OverviewScreen(
-                            ledger = ledger,
-                            onOpenEntry = { openEditor(it, it.date) },
-                            onOpenDay = { date ->
-                                entriesDate = date
-                                entriesMonth = Fmt.monthOf(date)
-                                selectTab("entries")
-                            },
-                            onOpenMonth = { month ->
-                                entriesDate = null
-                                entriesMonth = month
-                                selectTab("entries")
-                            },
-                            onOpenImport = { openOverlay(ROUTE_IMPORT) },
-                            onOpenProjects = { openOverlay(ROUTE_PROJECTS) },
-                            onOpenProject = { openProject(it) },
-                            onAddEntry = { openEditor(null, Fmt.today()) },
-                            onLoadDemo = {
-                                vm.loadDemo()
-                                toast = "示例账本已载入"
-                            },
-                            stockValue = stockTotals.marketValue,
-                            stockPnl = stockTotals.pnl,
-                            stockDayPnl = stockTotals.dayPnl,
-                            stockAccountCount = ledger.stockAccounts.size,
-                            stockTrend = stockTrend.map { it.value },
-                            onOpenStocks = { openOverlay(ROUTE_STOCKS) },
-                        )
-
-                        current == "entries" -> EntriesScreen(
-                            ledger = ledger,
-                            month = entriesMonth,
-                            dayFilter = entriesDate,
-                            onMonth = { entriesMonth = it },
-                            onDayFilter = { entriesDate = it },
-                            onOpenEntry = { openEditor(it, it.date) },
-                            onOpenImport = { openOverlay(ROUTE_IMPORT) },
-                        )
-
-                        current == "assets" -> AssetsScreen(
-                            ledger = ledger,
-                            stockValue = stockTotals.marketValue,
-                            stockPnl = stockTotals.pnl,
-                            stockAccountCount = ledger.stockAccounts.size,
-                            onOpenStocks = { openOverlay(ROUTE_STOCKS) },
-                            onAdd = { openWallet(null) },
-                            onOpenWallet = { openWallet(it) },
-                        )
-
-                        current == "settings" -> SettingsScreen(
-                            vm = vm,
-                            onToast = { toast = it },
-                            onOpenImport = { openOverlay(ROUTE_IMPORT) },
-                        )
-
-                        current == ROUTE_PROJECTS -> ProjectsScreen(
-                            ledger = ledger,
-                            onBack = { popOverlay() },
-                            onOpenProject = { openProject(it) },
-                            onCreate = { name, note, start, end ->
-                                vm.createProject(name, note, start, end)
-                                toast = "项目已创建"
-                            },
-                        )
-
-                        current == ROUTE_IMPORT -> ImportScreen(
-                            vm = vm,
-                            incoming = incomingFile,
-                            onIncomingConsumed = onIncomingConsumed,
-                            onBack = { popOverlay() },
-                        )
-
-                        current == ROUTE_WALLET_KIND -> WalletKindScreen(
-                            ledger = ledger,
-                            selected = walletDraft?.kind ?: "debit",
-                            onPick = { kind, presetName ->
-                                val draft = walletDraft
-                                if (draft != null) {
-                                    walletDraft = draft.copy(
-                                        kind = kind,
-                                        name = if (draft.name.isBlank() && presetName.isNotEmpty()) presetName else draft.name,
-                                    )
-                                }
-                                if (parentRoute == ROUTE_WALLET_EDIT) {
-                                    // 编辑途中回来改类型，退回原来那张表
-                                    popOverlay()
-                                } else {
-                                    // 新增的第一步：进表单，返回时还会先回到这一页
-                                    openOverlay(ROUTE_WALLET_EDIT)
-                                }
-                            },
-                            onBack = { popOverlay() },
-                        )
-
-                        current == ROUTE_WALLET_EDIT -> WalletEditorScreen(
-                            wallet = walletDraft ?: Wallet(id = "", name = "", kind = "debit"),
-                            isNew = walletIsNew,
-                            onBack = { popOverlay() },
-                            onPickKind = { openOverlay(ROUTE_WALLET_KIND) },
-                            onSave = { updated ->
-                                if (walletIsNew) vm.addWallet(updated) else vm.updateWallet(updated)
-                                toast = if (walletIsNew) "账户已添加" else "账户已更新"
-                                popOverlay()
-                            },
-                            onDelete = { wallet ->
-                                vm.deleteWallet(wallet.id)
-                                toast = "账户已删除"
-                                popOverlay()
-                            },
-                        )
-
-                        current == ROUTE_STOCKS -> StocksScreen(
-                            ledger = ledger,
-                            quotes = quotes,
-                            rates = rates,
-                            candles = candles,
-                            busy = quoteBusy,
-                            note = quoteNote,
-                            onBack = { popOverlay() },
-                            onRefresh = {
-                                vm.refreshQuotes()
-                                vm.ensureDaily(ledger.stocks, force = true)
-                            },
-                            onOpenAccount = { openOverlay(STOCK_ACC_PREFIX + it) },
-                            onAddAccount = vm::addStockAccount,
-                        )
-
-                        current.startsWith(STOCK_ACC_PREFIX) -> StockAccountScreen(
-                            ledger = ledger,
-                            accountId = current.removePrefix(STOCK_ACC_PREFIX),
-                            quotes = quotes,
-                            rates = rates,
-                            candles = candles,
-                            busy = quoteBusy,
-                            onBack = { popOverlay() },
-                            onRefresh = {
-                                vm.refreshQuotes()
-                                vm.ensureDaily(ledger.stocks, force = true)
-                            },
-                            onSaveHolding = { stock, costE4, shares ->
-                                vm.saveHolding(
-                                    current.removePrefix(STOCK_ACC_PREFIX),
-                                    stock,
-                                    costE4,
-                                    shares,
-                                )
-                                vm.refreshQuotes(silent = true)
-                                // 新加的票还没有日 K，补一下才能画走势
-                                vm.ensureDaily(listOf(stock), force = true)
-                            },
-                            onRemoveHolding = { stockId ->
-                                vm.removeHolding(current.removePrefix(STOCK_ACC_PREFIX), stockId)
-                            },
-                            onRename = { name ->
-                                val target = ledger.stockAccounts.firstOrNull {
-                                    it.id == current.removePrefix(STOCK_ACC_PREFIX)
-                                }
-                                if (target != null) vm.renameStockAccount(target.copy(name = name))
-                            },
-                            onDelete = {
-                                vm.deleteStockAccount(current.removePrefix(STOCK_ACC_PREFIX))
-                                toast = "股票账户已删除"
-                                popOverlay()
-                            },
-                            onOpenStock = { stockId ->
-                                openOverlay(
-                                    STOCK_DETAIL_PREFIX + current.removePrefix(STOCK_ACC_PREFIX) + "/" + stockId,
-                                )
-                            },
-                            onLoadDaily = {
-                                val account = ledger.stockAccounts.firstOrNull {
-                                    it.id == current.removePrefix(STOCK_ACC_PREFIX)
-                                }
-                                val ids = account?.entries?.keys.orEmpty()
-                                vm.ensureDaily(ledger.stocks.filter { it.id in ids })
-                            },
-                        )
-
-                        current.startsWith(STOCK_DETAIL_PREFIX) -> {
-                            val parts = current.removePrefix(STOCK_DETAIL_PREFIX).split("/")
-                            val accountId = parts.firstOrNull().orEmpty()
-                            val stockId = parts.getOrNull(1).orEmpty()
-                            StockDetailScreen(
+    // 不用 Scaffold：顶栏高度会跟着滚动一小段一小段地变，Scaffold 的 innerPadding 一变
+    // 就会把整页重新组合一遍；换成 Column 之后只有布局重排，滚动不会掉帧。
+    Box(Modifier.fillMaxSize().background(colors.canvas)) {
+        Column(Modifier.fillMaxSize()) {
+            PotHeader(
+                title = activeTab.label,
+                subtitle = subtitle,
+                // 进度用 lambda 交进去，只让顶栏自己重组合，不牵动整页
+                collapse = { collapses[routeNow] ?: 0f },
+                hidden = overlay,
+            )
+            // 底栏不占布局，浮在内容上面：列表可以滚到胶囊背后，
+            // 左右两侧露出页面内容（BiliPai 那种悬浮效果），而不是一条实心横栏把内容切掉。
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .nestedScroll(headerScroll),
+            ) {
+                AnimatedContent(
+                    targetState = route,
+                    modifier = Modifier.fillMaxSize(),
+                    transitionSpec = {
+                        val forward = routeOrder(targetState) >= routeOrder(initialState)
+                        val enter = slideInHorizontally(
+                            animationSpec = tween(240, easing = FastOutSlowInEasing),
+                        ) { width -> if (forward) width / 8 else -width / 8 } + fadeIn(tween(180))
+                        val exit = slideOutHorizontally(
+                            animationSpec = tween(240, easing = FastOutSlowInEasing),
+                        ) { width -> if (forward) -width / 10 else width / 10 } + fadeOut(tween(150))
+                        enter togetherWith exit
+                    },
+                    label = "tab",
+                ) { current ->
+                    stateHolder.SaveableStateProvider(current) {
+                        // 叠加页自己带返回头（EditorBar 那种），顶栏让位；
+                        // 它原来靠顶栏撑着状态栏，现在自己补上这段留白。
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .then(
+                                    if (isOverlay(current)) Modifier.statusBarsPadding() else Modifier,
+                                ),
+                        ) {
+                            when {
+                            current == "overview" -> OverviewScreen(
                                 ledger = ledger,
-                                accountId = accountId,
-                                stockId = stockId,
+                                onOpenEntry = { openEditor(it, it.date) },
+                                onOpenDay = { date ->
+                                    entriesDate = date
+                                    entriesMonth = Fmt.monthOf(date)
+                                    selectTab("entries")
+                                },
+                                onOpenMonth = { month ->
+                                    entriesDate = null
+                                    entriesMonth = month
+                                    selectTab("entries")
+                                },
+                                onOpenImport = { openOverlay(ROUTE_IMPORT) },
+                                onOpenProjects = { openOverlay(ROUTE_PROJECTS) },
+                                onOpenProject = { openProject(it) },
+                                onAddEntry = { openEditor(null, Fmt.today()) },
+                                onLoadDemo = {
+                                    vm.loadDemo()
+                                    toast = "示例账本已载入"
+                                },
+                                stockValue = stockTotals.marketValue,
+                                stockPnl = stockTotals.pnl,
+                                stockDayPnl = stockTotals.dayPnl,
+                                stockAccountCount = ledger.stockAccounts.size,
+                                stockTrend = stockTrend.map { it.value },
+                                onOpenStocks = { openOverlay(ROUTE_STOCKS) },
+                            )
+
+                            current == "entries" -> EntriesScreen(
+                                ledger = ledger,
+                                month = entriesMonth,
+                                dayFilter = entriesDate,
+                                onMonth = { entriesMonth = it },
+                                onDayFilter = { entriesDate = it },
+                                onOpenEntry = { openEditor(it, it.date) },
+                                onOpenImport = { openOverlay(ROUTE_IMPORT) },
+                            )
+
+                            current == "assets" -> AssetsScreen(
+                                ledger = ledger,
+                                stockValue = stockTotals.marketValue,
+                                stockPnl = stockTotals.pnl,
+                                stockAccountCount = ledger.stockAccounts.size,
+                                onOpenStocks = { openOverlay(ROUTE_STOCKS) },
+                                onAdd = { openWallet(null) },
+                                onOpenWallet = { openWallet(it) },
+                            )
+
+                            current == "settings" -> SettingsScreen(
+                                vm = vm,
+                                onToast = { toast = it },
+                                onOpenImport = { openOverlay(ROUTE_IMPORT) },
+                            )
+
+                            current == ROUTE_PROJECTS -> ProjectsScreen(
+                                ledger = ledger,
+                                onBack = { popOverlay() },
+                                onOpenProject = { openProject(it) },
+                                onCreate = { name, note, start, end ->
+                                    vm.createProject(name, note, start, end)
+                                    toast = "项目已创建"
+                                },
+                            )
+
+                            current == ROUTE_IMPORT -> ImportScreen(
+                                vm = vm,
+                                incoming = incomingFile,
+                                onIncomingConsumed = onIncomingConsumed,
+                                onBack = { popOverlay() },
+                            )
+
+                            current == ROUTE_WALLET_KIND -> WalletKindScreen(
+                                ledger = ledger,
+                                selected = walletDraft?.kind ?: "debit",
+                                onPick = { kind, presetName ->
+                                    val draft = walletDraft
+                                    if (draft != null) {
+                                        walletDraft = draft.copy(
+                                            kind = kind,
+                                            name = if (draft.name.isBlank() && presetName.isNotEmpty()) presetName else draft.name,
+                                        )
+                                    }
+                                    if (parentRoute == ROUTE_WALLET_EDIT) {
+                                        // 编辑途中回来改类型，退回原来那张表
+                                        popOverlay()
+                                    } else {
+                                        // 新增的第一步：进表单，返回时还会先回到这一页
+                                        openOverlay(ROUTE_WALLET_EDIT)
+                                    }
+                                },
+                                onBack = { popOverlay() },
+                            )
+
+                            current == ROUTE_WALLET_EDIT -> WalletEditorScreen(
+                                wallet = walletDraft ?: Wallet(id = "", name = "", kind = "debit"),
+                                isNew = walletIsNew,
+                                onBack = { popOverlay() },
+                                onPickKind = { openOverlay(ROUTE_WALLET_KIND) },
+                                onSave = { updated ->
+                                    if (walletIsNew) vm.addWallet(updated) else vm.updateWallet(updated)
+                                    toast = if (walletIsNew) "账户已添加" else "账户已更新"
+                                    popOverlay()
+                                },
+                                onDelete = { wallet ->
+                                    vm.deleteWallet(wallet.id)
+                                    toast = "账户已删除"
+                                    popOverlay()
+                                },
+                            )
+
+                            current == ROUTE_STOCKS -> StocksScreen(
+                                ledger = ledger,
                                 quotes = quotes,
                                 rates = rates,
                                 candles = candles,
-                                minutes = minutes,
+                                busy = quoteBusy,
+                                note = quoteNote,
+                                onBack = { popOverlay() },
+                                onRefresh = {
+                                    vm.refreshQuotes()
+                                    vm.ensureDaily(ledger.stocks, force = true)
+                                },
+                                onOpenAccount = { openOverlay(STOCK_ACC_PREFIX + it) },
+                                onAddAccount = vm::addStockAccount,
+                            )
+
+                            current.startsWith(STOCK_ACC_PREFIX) -> StockAccountScreen(
+                                ledger = ledger,
+                                accountId = current.removePrefix(STOCK_ACC_PREFIX),
+                                quotes = quotes,
+                                rates = rates,
+                                candles = candles,
                                 busy = quoteBusy,
                                 onBack = { popOverlay() },
                                 onRefresh = {
                                     vm.refreshQuotes()
                                     vm.ensureDaily(ledger.stocks, force = true)
-                                    ledger.stocks.firstOrNull { it.id == stockId }?.let {
-                                        vm.ensureMinute(it, force = true)
-                                    }
-                                },
-                                onLoadMinute = {
-                                    ledger.stocks.firstOrNull { it.id == stockId }?.let { vm.ensureMinute(it) }
                                 },
                                 onSaveHolding = { stock, costE4, shares ->
-                                    vm.saveHolding(accountId, stock, costE4, shares)
+                                    vm.saveHolding(
+                                        current.removePrefix(STOCK_ACC_PREFIX),
+                                        stock,
+                                        costE4,
+                                        shares,
+                                    )
                                     vm.refreshQuotes(silent = true)
+                                    // 新加的票还没有日 K，补一下才能画走势
                                     vm.ensureDaily(listOf(stock), force = true)
                                 },
-                                onRemoveHolding = { id -> vm.removeHolding(accountId, id) },
-                            )
-                        }
-
-                        current.startsWith(PROJECT_PREFIX) -> ProjectDetailScreen(
-                            ledger = ledger,
-                            projectId = current.removePrefix(PROJECT_PREFIX),
-                            onBack = { popOverlay() },
-                            onOpenEntry = { openEditor(it, it.date) },
-                            onUpdate = vm::updateProject,
-                            onDelete = vm::deleteProject,
-                            onAttach = vm::attach,
-                            onDetach = vm::detach,
-                        )
-                    }
-                }
-            }
-
-            // 撤销条与轻提示都浮在底部胶囊上方，不挤占列表
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(horizontal = 18.dp, vertical = 12.dp)
-                    .padding(bottom = PotBarHeight + 20.dp),
-            ) {
-                val pending = undoEntry
-                AnimatedVisibility(
-                    visible = pending != null,
-                    enter = slideInVertically(tween(180)) { it } + fadeIn(tween(120)),
-                    exit = slideOutVertically(tween(140)) { it } + fadeOut(tween(100)),
-                ) {
-                    Surface(
-                        color = colors.ink,
-                        contentColor = colors.panel,
-                        shape = RoundedCornerShape(14.dp),
-                        shadowElevation = 6.dp,
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text("账目已删除", fontSize = 14.sp, color = colors.panel)
-                            Spacer(Modifier.width(6.dp))
-                            TextButton(
-                                onClick = {
-                                    val entry = undoEntry
-                                    if (entry != null) vm.restoreEntry(entry)
-                                    undoEntry = null
+                                onRemoveHolding = { stockId ->
+                                    vm.removeHolding(current.removePrefix(STOCK_ACC_PREFIX), stockId)
                                 },
-                            ) {
-                                Text("撤销", fontSize = 14.sp, color = colors.brand, fontWeight = FontWeight.Medium)
+                                onRename = { name ->
+                                    val target = ledger.stockAccounts.firstOrNull {
+                                        it.id == current.removePrefix(STOCK_ACC_PREFIX)
+                                    }
+                                    if (target != null) vm.renameStockAccount(target.copy(name = name))
+                                },
+                                onDelete = {
+                                    vm.deleteStockAccount(current.removePrefix(STOCK_ACC_PREFIX))
+                                    toast = "股票账户已删除"
+                                    popOverlay()
+                                },
+                                onOpenStock = { stockId ->
+                                    openOverlay(
+                                        STOCK_DETAIL_PREFIX + current.removePrefix(STOCK_ACC_PREFIX) + "/" + stockId,
+                                    )
+                                },
+                                onLoadDaily = {
+                                    val account = ledger.stockAccounts.firstOrNull {
+                                        it.id == current.removePrefix(STOCK_ACC_PREFIX)
+                                    }
+                                    val ids = account?.entries?.keys.orEmpty()
+                                    vm.ensureDaily(ledger.stocks.filter { it.id in ids })
+                                },
+                            )
+
+                            current.startsWith(STOCK_DETAIL_PREFIX) -> {
+                                val parts = current.removePrefix(STOCK_DETAIL_PREFIX).split("/")
+                                val accountId = parts.firstOrNull().orEmpty()
+                                val stockId = parts.getOrNull(1).orEmpty()
+                                StockDetailScreen(
+                                    ledger = ledger,
+                                    accountId = accountId,
+                                    stockId = stockId,
+                                    quotes = quotes,
+                                    rates = rates,
+                                    candles = candles,
+                                    minutes = minutes,
+                                    busy = quoteBusy,
+                                    onBack = { popOverlay() },
+                                    onRefresh = {
+                                        vm.refreshQuotes()
+                                        vm.ensureDaily(ledger.stocks, force = true)
+                                        ledger.stocks.firstOrNull { it.id == stockId }?.let {
+                                            vm.ensureMinute(it, force = true)
+                                        }
+                                    },
+                                    onLoadMinute = {
+                                        ledger.stocks.firstOrNull { it.id == stockId }?.let { vm.ensureMinute(it) }
+                                    },
+                                    onSaveHolding = { stock, costE4, shares ->
+                                        vm.saveHolding(accountId, stock, costE4, shares)
+                                        vm.refreshQuotes(silent = true)
+                                        vm.ensureDaily(listOf(stock), force = true)
+                                    },
+                                    onRemoveHolding = { id -> vm.removeHolding(accountId, id) },
+                                )
+                            }
+
+                            current.startsWith(PROJECT_PREFIX) -> ProjectDetailScreen(
+                                ledger = ledger,
+                                projectId = current.removePrefix(PROJECT_PREFIX),
+                                onBack = { popOverlay() },
+                                onOpenEntry = { openEditor(it, it.date) },
+                                onUpdate = vm::updateProject,
+                                onDelete = vm::deleteProject,
+                                onAttach = vm::attach,
+                                onDetach = vm::detach,
+                            )
                             }
                         }
                     }
                 }
 
-                val notice = toast
-                AnimatedVisibility(
-                    visible = notice != null && pending == null,
-                    enter = fadeIn(tween(150)),
-                    exit = fadeOut(tween(150)),
+            }
+        }
+
+        // 撤销条与轻提示都浮在底部胶囊上方，不挤占列表
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(horizontal = 18.dp, vertical = 12.dp)
+                .padding(bottom = PotBarHeight + 20.dp),
+        ) {
+            val pending = undoEntry
+            AnimatedVisibility(
+                visible = pending != null,
+                enter = slideInVertically(tween(180)) { it } + fadeIn(tween(120)),
+                exit = slideOutVertically(tween(140)) { it } + fadeOut(tween(100)),
+            ) {
+                Surface(
+                    color = colors.ink,
+                    contentColor = colors.panel,
+                    shape = RoundedCornerShape(14.dp),
+                    shadowElevation = 6.dp,
                 ) {
-                    Surface(
-                        color = colors.ink,
-                        contentColor = colors.panel,
-                        shape = RoundedCornerShape(14.dp),
-                        shadowElevation = 6.dp,
-                        onClick = { toast = null },
+                    Row(
+                        modifier = Modifier.padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = notice.orEmpty(),
-                            fontSize = 14.sp,
-                            color = colors.panel,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
-                        )
+                        Text("账目已删除", fontSize = 14.sp, color = colors.panel)
+                        Spacer(Modifier.width(6.dp))
+                        TextButton(
+                            onClick = {
+                                val entry = undoEntry
+                                if (entry != null) vm.restoreEntry(entry)
+                                undoEntry = null
+                            },
+                        ) {
+                            Text("撤销", fontSize = 14.sp, color = colors.brand, fontWeight = FontWeight.Medium)
+                        }
                     }
+                }
+            }
+
+            val notice = toast
+            AnimatedVisibility(
+                visible = notice != null && pending == null,
+                enter = fadeIn(tween(150)),
+                exit = fadeOut(tween(150)),
+            ) {
+                Surface(
+                    color = colors.ink,
+                    contentColor = colors.panel,
+                    shape = RoundedCornerShape(14.dp),
+                    shadowElevation = 6.dp,
+                    onClick = { toast = null },
+                ) {
+                    Text(
+                        text = notice.orEmpty(),
+                        fontSize = 14.sp,
+                        color = colors.panel,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
+                    )
                 }
             }
         }
 
-            PotBottomBar(
-                selected = if (overlay) lastTab else route,
-                onSelect = ::selectTab,
-                // 设置页没有「加一笔」这回事，最后一个 tab 就只留导航，胶囊顺势撑满整行
-                showAdd = !overlay && route != "settings",
-                addHint = if (route == "assets") "添加账户" else "记一笔",
-                onAdd = {
-                    // 资产页的加号是建账户，账目页的加号是记一笔
-                    if (route == "assets") openWallet(null) else openEditor(null, Fmt.today())
-                },
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
-        }
+        PotBottomBar(
+            selected = if (overlay) lastTab else route,
+            onSelect = ::selectTab,
+            // 设置页没有「加一笔」这回事，最后一个 tab 就只留导航，胶囊顺势撑满整行
+            showAdd = !overlay && route != "settings",
+            addHint = if (route == "assets") "添加账户" else "记一笔",
+            onAdd = {
+                // 资产页的加号是建账户，账目页的加号是记一笔
+                if (route == "assets") openWallet(null) else openEditor(null, Fmt.today())
+            },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 
     if (editorOpen) {
@@ -667,37 +720,80 @@ fun PotRoot(
     }
 }
 
+/* ------------------------------ 顶栏：会缩的页面标题 ------------------------------ */
+
+/** 大标题状态：标题 + 一行说明，给页面本身留的位置也就这么多。 */
+private val HeaderExpandedHeight = 58.dp
+
+/** 收起后只剩一行小标题，跟系统顶栏一个高度感。 */
+private val HeaderCollapsedHeight = 34.dp
+
+/** 手指在列表上滑这么多，标题从大收到小。太大半天不变，太小一碰就缩没了。 */
+private val HeaderCollapseDistance = 76.dp
+
+/**
+ * 顶栏就是当前页面的名字，不再是固定的品牌字。
+ *
+ * 上半屏往下滚的时候标题一点点缩小、说明淡掉，腾出来的高度直接还给列表；
+ * 回到列表顶部再往下拉，它又长回来。收起进度由外面的滚动回调给，这里只管画。
+ * [collapse] 用 lambda 传：滚动时每秒要读几十次，只让这个组合自己重算。
+ */
 @Composable
-private fun PotTopBar(subtitle: String) {
+private fun PotHeader(
+    title: String,
+    subtitle: String,
+    collapse: () -> Float,
+    hidden: Boolean,
+) {
     val colors = LocalPotColors.current
+    // 叠加页自己带返回头，这条就让位；180ms 收掉，不是"啪"地消失
+    val hide by animateFloatAsState(
+        targetValue = if (hidden) 1f else 0f,
+        animationSpec = tween(180),
+        label = "headerHide",
+    )
+    if (hide > 0.995f) {
+        Spacer(Modifier.fillMaxWidth())
+        return
+    }
+    val c = collapse().coerceIn(0f, 1f)
+    val height = (HeaderExpandedHeight * (1f - c) + HeaderCollapsedHeight * c) * (1f - hide)
+    // 24sp 到 16sp：收起来之后跟其他页面的小标题一个量级，不喧宾夺主
+    val titleSize = 24f + (16f - 24f) * c
+    val noteAlpha = ((1f - c * 2f) * (1f - hide)).coerceIn(0f, 1f)
     Column(
         Modifier
             .fillMaxWidth()
             .background(colors.canvas)
             .statusBarsPadding()
-            .padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 6.dp),
+            .height(height)
+            .padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(9.dp)
-                    .clip(CircleShape)
-                    .background(colors.brand),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = "Stockpot",
-                style = MaterialTheme.typography.titleLarge,
-                color = colors.ink,
-                letterSpacing = (-0.3).sp,
-            )
-        }
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.weight(1f))
         Text(
-            text = subtitle,
-            style = MaterialTheme.typography.labelSmall,
-            color = colors.ink3,
+            text = title,
+            fontSize = titleSize.sp,
+            lineHeight = (titleSize * 1.28f).sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = (-0.3).sp,
+            color = colors.ink,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
+        // 说明这一行跟着收起一起被压扁（同时已经淡到看不见），
+        // 标题才会稳稳地往上走，而不是先跳一下再缩。
+        val noteHeight = 16.dp * (1f - c)
+        if (noteHeight > 0.5.dp && noteAlpha > 0.01f) {
+            Box(Modifier.height(noteHeight).clipToBounds()) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.ink3.copy(alpha = noteAlpha),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 
