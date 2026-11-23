@@ -460,16 +460,8 @@ fun PotRoot(
                             current == ROUTE_TITLE_SWAP -> TitleSwapScreen(
                                 ledger = ledger,
                                 words = prefs.swapWords,
-                                onToggleRule = { rule ->
-                                    // 一条规则带好几个词，开关就整组一起加减
-                                    val on = rule.words.any { it in prefs.swapWords }
-                                    val next = if (on) {
-                                        prefs.swapWords - rule.words.toSet()
-                                    } else {
-                                        prefs.swapWords + rule.words
-                                    }
-                                    vm.setSwapWords(next)
-                                },
+                                // 规则开关、加词、删词都走同一个口子，页面自己算好新集合
+                                onSetWords = vm::setSwapWords,
                                 onBack = { popOverlay() },
                                 onSwap = { ids ->
                                     vm.swapTitles(ids)

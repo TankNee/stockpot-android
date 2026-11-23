@@ -26,8 +26,11 @@ data class SwapRule(
             SwapRule("pdd", "拼多多", listOf("拼多多", "多多买菜"), "多多买菜"),
         )
 
+        /** 内置规则里的全部词，用来把用户自己加的词挑出来。 */
+        val builtInWords: Set<String> = builtIn.flatMap { it.words }.toSet()
+
         /** 默认全开：扫描本身不改任何数据，真正落库要用户自己点确认。 */
-        val defaultWords: Set<String> = builtIn.flatMap { it.words }.toSet()
+        val defaultWords: Set<String> = builtInWords
     }
 }
 
@@ -55,6 +58,21 @@ object TitleSwap {
         }
     }
 
+    /** 用户自己加的词：不在任何内置规则里，按字典序排好给界面用。 */
+    fun customWords(words: Collection<String>): List<String> =
+        words.filter { it.isNotBlank() && it !in SwapRule.builtInWords }.sorted()
+
+    /**
+     * 把一个新词规整一下：去掉首尾空白、内部连续空格压成一个、全角空格换半角。
+     * 返回 null 表示这个词不能用（空的、太长、或者已经在内置规则里了）。
+     */
+    fun normalizeWord(raw: String): String? {
+        val word = raw.replace('\u3000', ' ').trim().replace(Regex("\\s+"), " ")
+        if (word.length < 1 || word.length > 12) return null
+        if (word in SwapRule.builtInWords) return null
+        return word
+    }
+
     /** 扫一遍账本，按时间倒序给出命中项。已收起的行不参与（列表里根本看不见）。 */
     fun scan(entries: List<Entry>, words: Collection<String>): List<SwapHit> {
         if (words.isEmpty()) return emptyList()
@@ -64,7 +82,7 @@ object TitleSwap {
             .map { entry ->
                 val label = SwapRule.builtIn.firstOrNull { rule ->
                     rule.words.any { entry.counterparty.contains(it, ignoreCase = true) }
-                }?.label ?: "其他"
+                }?.label ?: "自定义"
                 SwapHit(entry, label)
             }
             .sortedWith(

@@ -110,4 +110,32 @@ class TitleSwapTest {
         val after = LedgerOps.swapTitles(ledger, setOf("1"))
         assertEquals(before, after.entries.sumOf { it.effectiveAmount })
     }
+
+    @Test
+    fun `自定义词只挑出不在内置规则里的`() {
+        val words = all + setOf("山姆", "盒马")
+        assertEquals(listOf("山姆", "盒马").sorted(), TitleSwap.customWords(words))
+        assertEquals(emptyList<String>(), TitleSwap.customWords(all))
+    }
+
+    @Test
+    fun `自定义词也能命中，标签是自定义`() {
+        val words = setOf("山姆")
+        val e = entry("1", "山姆会员商店", "牛奶 鸡蛋")
+        assertTrue(TitleSwap.matches(e, words))
+
+        val hits = TitleSwap.scan(listOf(e), words)
+        assertEquals(1, hits.size)
+        assertEquals("自定义", hits.first().ruleLabel)
+    }
+
+    @Test
+    fun `加词时会去掉多余空白并挡住重复`() {
+        assertEquals("山姆", TitleSwap.normalizeWord("  山姆  "))
+        assertEquals("山姆 会员", TitleSwap.normalizeWord("山姆\u3000\u3000会员"))
+        // 空的、太长的、内置已有的，都不收
+        assertEquals(null, TitleSwap.normalizeWord("   "))
+        assertEquals(null, TitleSwap.normalizeWord("这是一段特别特别长的关键词"))
+        assertEquals(null, TitleSwap.normalizeWord("美团"))
+    }
 }

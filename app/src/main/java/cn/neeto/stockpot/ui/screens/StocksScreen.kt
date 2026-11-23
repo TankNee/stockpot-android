@@ -12,14 +12,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -61,6 +64,9 @@ import cn.neeto.stockpot.core.model.Quote
 import cn.neeto.stockpot.core.model.Rates
 import cn.neeto.stockpot.core.model.Stock
 import cn.neeto.stockpot.core.model.StockAccount
+import cn.neeto.stockpot.core.stock.QuoteClient
+import cn.neeto.stockpot.core.stock.StockSearchHit
+import kotlinx.coroutines.delay
 import cn.neeto.stockpot.ui.components.EmptyState
 import cn.neeto.stockpot.ui.components.Hairline
 import cn.neeto.stockpot.ui.components.LineChart
@@ -874,16 +880,47 @@ internal fun HoldingEditorSheet(
     onDelete: (String) -> Unit,
 ) {
     val colors = LocalPotColors.current
-    var code by remember { mutableStateOf(existing?.first?.code ?: "") }
+    val haptics = rememberHaptics()
+    // 输入框里可以是代码，也可以是名字或拼音：一手敲、一手点候选，两条路都通
+    var query by remember { mutableStateOf(existing?.first?.code ?: "") }
     var name by remember { mutableStateOf(existing?.first?.name ?: "") }
+    var picked by remember { mutableStateOf<StockSearchHit?>(null) }
+    var hits by remember { mutableStateOf<List<StockSearchHit>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
     var costText by remember { mutableStateOf(existing?.second?.let { StockCode.priceText(it.costE4) } ?: "") }
     var sharesText by remember { mutableStateOf(existing?.second?.shares?.toString() ?: "") }
 
-    val market = remember(code) { StockCode.guessMarket(code) }
-    val quote = quotes[StockCode.stockIdFor(code, market)] ?: existing?.first?.let { quotes[it.id] }
+    // 改字就重搜，停手 280ms 才发请求；已经选中某一条就不再搜，免得把自己选的那条冲掉。
+    // 编辑已有持仓时输入框里就是原来那个代码，不必一打开就搜一遍。
+    LaunchedEffect(query, picked) {
+        if (picked != null) {
+            hits = emptyList()
+            searching = false
+            return@LaunchedEffect
+        }
+        val q = query.trim()
+        if (q.isEmpty() || (existing != null && q == existing.first.code)) {
+            hits = emptyList()
+            searching = false
+            return@LaunchedEffect
+        }
+        searching = true
+        delay(280)
+        hits = QuoteClient.search(q).take(6)
+        searching = false
+    }
+
+    // 选中候选时用它自带的 id / 市场；手敲的代码仍然按原来的规则猜
+    val code = picked?.code
+        ?: query.trim().uppercase().filter { it.isLetterOrDigit() && it.code < 128 }
+    val market = picked?.market ?: StockCode.guessMarket(code)
+    val stockId = picked?.id ?: StockCode.stockIdFor(code, market)
+    val quote = quotes[stockId] ?: existing?.first?.let { quotes[it.id] }
     val canSave = code.isNotBlank() && (sharesText.toLongOrNull() ?: 0L) > 0
 
     PotSheet(onDismiss = onDismiss) {
+      // 候选列表一出现、再加上软键盘，内容会顶出一屏，所以这条表单自己滚
+      Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
         Text(
             if (existing == null) "添加持仓" else "编辑持仓",
             style = MaterialTheme.typography.titleLarge,
@@ -898,14 +935,43 @@ internal fun HoldingEditorSheet(
         Spacer(Modifier.height(14.dp))
 
         SheetField(
-            label = "代码",
-            value = code,
-            placeholder = "600396 / 00700 / AAPL",
-            onValueChange = { input -> code = input.uppercase().filter { it.isLetterOrDigit() } },
+            label = "代码或名称",
+            value = query,
+            placeholder = "600519 / 腾讯 / AAPL",
+            onValueChange = { input ->
+                query = input
+                // 一改字，之前选中的那条就不作数了，重新搜
+                picked = null
+            },
         )
+        if (picked == null && hits.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 152.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.panel2)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                hits.forEachIndexed { index, hit ->
+                    if (index > 0) Hairline(Modifier.padding(horizontal = 12.dp))
+                    SearchHitRow(hit) {
+                        haptics(Haptic.Tap)
+                        picked = hit
+                        query = hit.name
+                        name = hit.name
+                    }
+                }
+            }
+        } else if (searching) {
+            Spacer(Modifier.height(6.dp))
+            Text("正在找…", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+        }
         Spacer(Modifier.height(6.dp))
         Text(
-            "市场：${Market.label(market)}" + (quote?.let { " · 现价 ${StockCode.priceText(it.priceE4)}" } ?: " · 暂未查到行情"),
+            "市场：${Market.label(market)}" + (quote?.let { " · 现价 ${StockCode.priceText(it.priceE4)}" } ?: " · 暂未查到行情") +
+                if (code.isEmpty() && query.isNotBlank()) " · 从上面的候选里选一只" else "",
             style = MaterialTheme.typography.labelSmall,
             color = colors.ink3,
         )
@@ -971,8 +1037,8 @@ internal fun HoldingEditorSheet(
             danger = false,
             onConfirm = {
                 val stock = Stock(
-                    id = StockCode.stockIdFor(code, market),
-                    code = code.trim(),
+                    id = stockId,
+                    code = code,
                     name = name.trim(),
                     market = market,
                     updatedAt = Fmt.stamp(),
@@ -984,6 +1050,35 @@ internal fun HoldingEditorSheet(
                 onSave(stock, cost, shares)
             },
             onCancel = onDismiss,
+        )
+      }
+    }
+}
+
+/** 搜索候选的一行：名称在前，市场和代码在右。点一下就把代码和名字填进表里。 */
+@Composable
+private fun SearchHitRow(hit: StockSearchHit, onClick: () -> Unit) {
+    val colors = LocalPotColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = hit.name,
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.ink,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = (if (hit.kind.startsWith("ETF")) "ETF" else Market.label(hit.market)) + " · " + hit.code,
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.ink3,
         )
     }
 }

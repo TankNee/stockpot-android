@@ -26,6 +26,19 @@ import kotlin.math.roundToLong
  * 的 `v_sh600396="1~华电辽能~600396~3.42~3.40~..."`，字段 1 名称、
  * 3 现价、4 昨收、30 时间。
  */
+/**
+ * 名称搜索的一条结果。[id] 已经按账本里的写法算好了（sh600519 / hk00700 / usaapl），
+ * 选中之后不用再猜市场。
+ */
+data class StockSearchHit(
+    val id: String,
+    val code: String,
+    val name: String,
+    val market: String,
+    /** 腾讯给的类型标记：GP-A / GP / ETF，用来在候选行里标一下 */
+    val kind: String,
+)
+
 object QuoteClient {
 
     private const val UA =
@@ -56,6 +69,86 @@ object QuoteClient {
 
     /** 单只想查名字：拿不到就是拿不到，不重试。 */
     suspend fun probe(stock: Stock): Quote? = fetch(listOf(stock))[stock.id]
+
+    /**
+     * 按名称 / 代码 / 拼音搜股票。腾讯的 smartbox 接口，返回
+     * `v_hint="sh~600519~\u8d35\u5dde\u8305\u53f0~gzmt~GP-A^..."`，
+     * 一条用 `^` 隔、字段用 `~` 隔，名字是 `\uXXXX` 转义。
+     *
+     * 搜不到就是空列表；网络断了也返回空，让用户继续手填代码，不要卡在那儿转圈。
+     */
+    suspend fun search(query: String, limit: Int = 8): List<StockSearchHit> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.isEmpty()) return@withContext emptyList()
+        runCatching {
+            val encoded = java.net.URLEncoder.encode(q, "UTF-8").replace("+", "%20")
+            parseSearch(get("https://smartbox.gtimg.cn/s3/?t=all&q=$encoded"))
+        }.getOrDefault(emptyList()).take(limit)
+    }
+
+    fun parseSearch(body: String): List<StockSearchHit> {
+        val open = body.indexOf("=\"")
+        if (open < 0) return emptyList()
+        val close = body.lastIndexOf('"')
+        if (close <= open + 2) return emptyList()
+        val payload = body.substring(open + 2, close)
+        if (payload.isBlank()) return emptyList()
+
+        return payload.split('^').mapNotNull { row ->
+            val fields = row.split('~')
+            if (fields.size < 5) return@mapNotNull null
+            val prefix = fields[0].trim().lowercase()
+            val rawCode = fields[1].trim()
+            val name = unescape(fields[2]).trim()
+            val kind = fields[4].trim()
+            if (rawCode.isEmpty() || name.isEmpty()) return@mapNotNull null
+
+            // 指数、债券、期货不是「持仓」，混进候选只会碍事
+            if (!(kind.startsWith("GP") || kind.startsWith("ETF") || kind.startsWith("LOF"))) {
+                return@mapNotNull null
+            }
+
+            val market = when (prefix) {
+                "hk" -> Market.HK
+                "us" -> Market.US
+                else -> Market.A
+            }
+            val code = when (market) {
+                // 美股代码长这样：aapl.oq / tcehy.ps，后缀是交易所，本地不用
+                Market.US -> rawCode.substringBefore('.').uppercase()
+                // 港股统一成五位，00700 而不是 700
+                Market.HK -> rawCode.padStart(5, '0')
+                else -> rawCode
+            }
+            val id = when (market) {
+                Market.HK -> "hk$code"
+                Market.US -> "us" + code.lowercase()
+                else -> prefix + code
+            }
+            StockSearchHit(id = id, code = code, name = name, market = market, kind = kind)
+        }.distinctBy { it.id }
+    }
+
+    /** 把 `\u8d35\u5dde` 这种转义还原成中文；没转义就原样返回。 */
+    private fun unescape(raw: String): String {
+        if (!raw.contains("\\u")) return raw
+        val out = StringBuilder(raw.length)
+        var i = 0
+        while (i < raw.length) {
+            val ch = raw[i]
+            if (ch == '\\' && i + 5 < raw.length && raw[i + 1] == 'u') {
+                val value = raw.substring(i + 2, i + 6).toIntOrNull(16)
+                if (value != null) {
+                    out.append(value.toChar())
+                    i += 6
+                    continue
+                }
+            }
+            out.append(ch)
+            i++
+        }
+        return out.toString()
+    }
 
     /**
      * 汇率：新浪的 `fx_susdcny` / `fx_susdhkd`，payload 里第一个正浮点就是汇率。
