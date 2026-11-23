@@ -154,7 +154,7 @@ fun WalletKindScreen(
     Column(Modifier.fillMaxWidth()) {
         EditorBar(title = "选择类型", onBack = onBack, onConfirm = null)
         LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 32.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 108.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (imported.isNotEmpty()) {
@@ -426,7 +426,7 @@ fun WalletEditorScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(start = 16.dp, end = 16.dp, bottom = 32.dp),
+                .padding(start = 16.dp, end = 16.dp, bottom = 108.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // 类型：点进去换一种，回来还是这张表，已经填的内容不会丢

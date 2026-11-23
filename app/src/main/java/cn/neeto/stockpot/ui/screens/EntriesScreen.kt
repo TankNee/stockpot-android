@@ -181,7 +181,7 @@ fun EntriesScreen(
 
         LazyColumn(
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(bottom = 28.dp),
+            contentPadding = PaddingValues(bottom = 108.dp),
         ) {
             grouped.forEach { (date, dayEntries) ->
                 val expense = dayEntries.filter { it.kind == Kind.EXPENSE && it.countsTowardTotals }

@@ -131,7 +131,7 @@ fun OverviewScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 28.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 108.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "stepper", contentType = "bar") {

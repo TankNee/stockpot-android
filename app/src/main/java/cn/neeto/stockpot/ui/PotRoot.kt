@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -64,6 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -308,20 +310,10 @@ fun PotRoot(
         containerColor = colors.canvas,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { PotTopBar(subtitle = subtitle) },
-        bottomBar = {
-            PotBottomBar(
-                selected = if (overlay) lastTab else route,
-                onSelect = ::selectTab,
-                // 设置页没有「加一笔」这回事，最后那个 tab 就只留导航
-                showAdd = !overlay && route != "settings",
-                addHint = if (route == "assets") "添加账户" else "记一笔",
-                onAdd = {
-                    // 资产页的加号是建账户，账目页的加号是记一笔
-                    if (route == "assets") openWallet(null) else openEditor(null, Fmt.today())
-                },
-            )
-        },
     ) { padding ->
+        // 底栏不占 Scaffold 的位置，浮在内容上面：列表可以滚到胶囊背后，
+        // 左右两侧露出页面内容（BiliPai 那种悬浮效果），而不是一条实心横栏把内容切掉。
+        Box(Modifier.fillMaxSize()) {
         Box(
             Modifier
                 .fillMaxSize()
@@ -569,13 +561,13 @@ fun PotRoot(
                 }
             }
 
-            // 撤销条与轻提示都浮在底部栏上方，不挤占列表
+            // 撤销条与轻提示都浮在底部胶囊上方，不挤占列表
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
                     .padding(horizontal = 18.dp, vertical = 12.dp)
-                    .padding(bottom = 4.dp),
+                    .padding(bottom = PotBarHeight + 20.dp),
             ) {
                 val pending = undoEntry
                 AnimatedVisibility(
@@ -630,6 +622,20 @@ fun PotRoot(
                     }
                 }
             }
+        }
+
+            PotBottomBar(
+                selected = if (overlay) lastTab else route,
+                onSelect = ::selectTab,
+                // 设置页没有「加一笔」这回事，最后一个 tab 就只留导航，胶囊顺势撑满整行
+                showAdd = !overlay && route != "settings",
+                addHint = if (route == "assets") "添加账户" else "记一笔",
+                onAdd = {
+                    // 资产页的加号是建账户，账目页的加号是记一笔
+                    if (route == "assets") openWallet(null) else openEditor(null, Fmt.today())
+                },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
     }
 
@@ -709,6 +715,7 @@ private fun PotBottomBar(
     showAdd: Boolean,
     addHint: String,
     onAdd: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = LocalPotColors.current
     val index = tabs.indexOfFirst { it.id == selected }.coerceAtLeast(0)
@@ -718,8 +725,25 @@ private fun PotBottomBar(
         animationSpec = spring(dampingRatio = 0.76f, stiffness = 420f),
         label = "barSlot",
     )
+    // 去设置页没有加号，胶囊要撑满整行：给加号那一格一个会伸缩的宽度，
+    // 胶囊跟着一点点变宽/变窄，而不是"啪"地跳一下。
+    val addSlot by animateDpAsState(
+        targetValue = if (showAdd) PotBarHeight + 10.dp else 0.dp,
+        animationSpec = spring(dampingRatio = 0.88f, stiffness = 320f),
+        label = "addSlot",
+    )
+    val addScale by animateFloatAsState(
+        targetValue = if (showAdd) 1f else 0.55f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 460f),
+        label = "addScale",
+    )
+    val addAlpha by animateFloatAsState(
+        targetValue = if (showAdd) 1f else 0f,
+        animationSpec = tween(durationMillis = if (showAdd) 160 else 90),
+        label = "addAlpha",
+    )
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
@@ -762,28 +786,39 @@ private fun PotBottomBar(
                 }
             }
         }
-        if (showAdd) {
-            Spacer(Modifier.width(10.dp))
+        if (addSlot > 0.5.dp) {
             Box(
                 modifier = Modifier
-                    .size(56.dp)
-                    .shadow(
-                        elevation = 10.dp,
-                        shape = CircleShape,
-                        clip = false,
-                        ambientColor = colors.brand.copy(alpha = 0.20f),
-                        spotColor = colors.brand.copy(alpha = 0.35f),
-                    )
-                    .background(colors.brand, CircleShape)
-                    .clickable { onAdd() },
-                contentAlignment = Alignment.Center,
+                    .width(addSlot)
+                    .height(PotBarHeight),
+                contentAlignment = Alignment.CenterEnd,
             ) {
-                Icon(
-                    Icons.Filled.Add,
-                    contentDescription = addHint,
-                    tint = colors.onBrand,
-                    modifier = Modifier.size(26.dp),
-                )
+                Box(
+                    modifier = Modifier
+                        .size(PotBarHeight)
+                        .graphicsLayer {
+                            alpha = addAlpha
+                            scaleX = addScale
+                            scaleY = addScale
+                        }
+                        .shadow(
+                            elevation = 10.dp,
+                            shape = CircleShape,
+                            clip = false,
+                            ambientColor = colors.brand.copy(alpha = 0.20f),
+                            spotColor = colors.brand.copy(alpha = 0.35f),
+                        )
+                        .background(colors.brand, CircleShape)
+                        .clickable(onClick = onAdd),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Add,
+                        contentDescription = addHint,
+                        tint = colors.onBrand,
+                        modifier = Modifier.size(26.dp),
+                    )
+                }
             }
         }
     }
