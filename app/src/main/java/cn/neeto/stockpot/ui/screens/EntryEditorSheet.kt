@@ -67,6 +67,7 @@ import cn.neeto.stockpot.core.model.CategoryDef
 import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
+import cn.neeto.stockpot.core.model.Project
 import cn.neeto.stockpot.ui.components.Amount
 import cn.neeto.stockpot.ui.components.Chip
 import cn.neeto.stockpot.ui.components.EntryRow
@@ -114,6 +115,7 @@ fun EntryEditorSheet(
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showAccountPicker by remember { mutableStateOf(false) }
+    var showProjectPicker by remember(existing?.id) { mutableStateOf(false) }
     var showRefundPicker by remember { mutableStateOf(false) }
 
     // 对面那条实时取：刚关联完 ledger 就变了，卡片要立刻显示成已关联
@@ -334,7 +336,7 @@ fun EntryEditorSheet(
 
             Spacer(Modifier.height(14.dp))
             FieldLabel("账户")
-            AccountSelector(value = account, onClick = { showAccountPicker = true })
+            PickerField(value = account, placeholder = "选择账户", onClick = { showAccountPicker = true })
 
             Spacer(Modifier.height(14.dp))
             FieldLabel("备注")
@@ -347,16 +349,13 @@ fun EntryEditorSheet(
             if (ledger.projects.isNotEmpty()) {
                 Spacer(Modifier.height(18.dp))
                 FieldLabel("项目")
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Chip(label = "无", active = projectId.isEmpty(), onClick = { projectId = "" })
-                    ledger.projects.filterNot { it.archived }.take(3).forEach { project ->
-                        Chip(
-                            label = project.name,
-                            active = projectId == project.id,
-                            onClick = { projectId = project.id },
-                        )
-                    }
-                }
+                // 项目名长短差很多（「26年初·外伶仃岛」），chip 一排根本放不下；
+                // 跟账户一样用一行下拉，选中的那个显示全名。
+                PickerField(
+                    value = ledger.projects.firstOrNull { it.id == projectId }?.name.orEmpty(),
+                    placeholder = if (projectId.isEmpty()) "不归项目" else "选择项目",
+                    onClick = { showProjectPicker = true },
+                )
             }
 
             if (existing != null) {
@@ -438,6 +437,18 @@ fun EntryEditorSheet(
                 val expenseId = if (existing.kind == Kind.EXPENSE) existing.id else other.id
                 val refundId = if (existing.kind == Kind.EXPENSE) other.id else existing.id
                 onLinkRefund?.invoke(expenseId, refundId)
+            },
+        )
+    }
+
+    if (showProjectPicker) {
+        ProjectPickerSheet(
+            projects = ledger.projects,
+            selectedId = projectId,
+            onDismiss = { showProjectPicker = false },
+            onPick = { picked ->
+                projectId = picked
+                showProjectPicker = false
             },
         )
     }
@@ -748,9 +759,13 @@ private fun FieldLabel(text: String) {
     )
 }
 
-/** 账户选择：点开列表挑，不用打字。 */
+/** 点开列表挑一项（账户、项目共用）：一行里只显示当前值，不铺一排 chip。 */
 @Composable
-private fun AccountSelector(value: String, onClick: () -> Unit) {
+private fun PickerField(
+    value: String,
+    placeholder: String,
+    onClick: () -> Unit,
+) {
     val colors = LocalPotColors.current
     Row(
         modifier = Modifier
@@ -762,7 +777,7 @@ private fun AccountSelector(value: String, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = value.ifEmpty { "选择账户" },
+            text = value.ifEmpty { placeholder },
             style = MaterialTheme.typography.bodyMedium,
             color = if (value.isEmpty()) colors.ink3 else colors.ink,
             modifier = Modifier.weight(1f),
@@ -879,6 +894,108 @@ private fun AccountPickerDialog(
                 }
             }
         }
+}
+
+/** 项目选择：项目名可以很长，一行一个，选中的打勾。 */
+@Composable
+private fun ProjectPickerSheet(
+    projects: List<Project>,
+    selectedId: String,
+    onDismiss: () -> Unit,
+    onPick: (String) -> Unit,
+) {
+    val colors = LocalPotColors.current
+    PotSheet(onDismiss = onDismiss) {
+        Text("选择项目", style = MaterialTheme.typography.titleLarge, color = colors.ink)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "项目只给账目分组，不影响合计。",
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.ink3,
+        )
+        Spacer(Modifier.height(10.dp))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 380.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            ProjectPickRow(
+                name = "不归项目",
+                subtitle = "这笔不算在任何项目里",
+                active = selectedId.isEmpty(),
+                onClick = { onPick("") },
+            )
+            projects.filterNot { it.archived }.forEach { project ->
+                Hairline()
+                ProjectPickRow(
+                    name = project.name,
+                    subtitle = listOf(project.note, projectRange(project))
+                        .filter { it.isNotBlank() }
+                        .joinToString("  ·  "),
+                    active = project.id == selectedId,
+                    onClick = { onPick(project.id) },
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun ProjectPickRow(
+    name: String,
+    subtitle: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = LocalPotColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (active) colors.brandTint else Color.Transparent)
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (active) colors.brandInk else colors.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (subtitle.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.ink3,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (active) {
+            Icon(
+                Icons.Outlined.Check,
+                contentDescription = null,
+                tint = colors.brandInk,
+                modifier = Modifier.size(17.dp),
+            )
+        }
+    }
+}
+
+/** 项目的起止日期；只填了一头就写一头。 */
+private fun projectRange(project: Project): String = when {
+    project.startDate.isNotBlank() && project.endDate.isNotBlank() ->
+        "${Fmt.shortDate(project.startDate)} – ${Fmt.shortDate(project.endDate)}"
+    project.startDate.isNotBlank() -> "${Fmt.shortDate(project.startDate)} 起"
+    project.endDate.isNotBlank() -> "到 ${Fmt.shortDate(project.endDate)}"
+    else -> ""
 }
 
 @Composable
