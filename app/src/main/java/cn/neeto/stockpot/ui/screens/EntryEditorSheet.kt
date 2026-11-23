@@ -64,11 +64,14 @@ import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.ui.components.Chip
+import cn.neeto.stockpot.ui.components.Hairline
+import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.Segmented
 import cn.neeto.stockpot.ui.components.SheetGrabber
 import cn.neeto.stockpot.ui.components.SheetHeader
 import cn.neeto.stockpot.ui.components.PotSheet
 import cn.neeto.stockpot.ui.components.SheetActions
+import cn.neeto.stockpot.ui.components.rememberHaptics
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
 
@@ -110,6 +113,13 @@ fun EntryEditorSheet(
 
     val amount = Fmt.parseYuan(amountText) ?: 0L
     val canSave = amount > 0
+
+    // 标题下面写清「哪天、几点」：日期会跟着手动改，时间来自账单本身
+    val whenLabel = if (existing == null) {
+        null
+    } else {
+        Fmt.dayLabel(date) + " · " + if (existing.time.isBlank()) "未记录时间" else existing.time
+    }
 
     fun submit() {
         if (!canSave) return
@@ -154,18 +164,21 @@ fun EntryEditorSheet(
         dragHandle = { SheetGrabber() },
     ) {
         Column(Modifier.fillMaxWidth().imePadding()) {
+            // 头部钉在顶上：保存按钮得一直看得见，不能跟着表单一起滚下去
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                SheetHeader(
+                    title = if (existing == null) "记一笔" else "编辑账目",
+                    subtitle = whenLabel,
+                    onClose = onDismiss,
+                    trailing = { SaveChip(enabled = canSave) { submit() } },
+                )
+            }
             Column(
                 modifier = Modifier
                     .weight(1f, false)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp),
             ) {
-                SheetHeader(
-                    title = if (existing == null) "记一笔" else "编辑账目",
-                    subtitle = if (existing == null) null else Fmt.dayLabel(existing.date),
-                    onClose = onDismiss,
-                )
-
             Spacer(Modifier.height(6.dp))
             Segmented(
                 options = listOf(
@@ -309,9 +322,11 @@ fun EntryEditorSheet(
                 }
             }
 
-            Spacer(Modifier.height(26.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (existing != null) {
+            if (existing != null) {
+                Spacer(Modifier.height(22.dp))
+                MetaCard(existing)
+                Spacer(Modifier.height(14.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = {
                         onDelete(existing)
                         onDismiss()
@@ -325,25 +340,6 @@ fun EntryEditorSheet(
                         Spacer(Modifier.width(5.dp))
                         Text("删除", color = colors.danger, fontSize = 15.sp)
                     }
-                }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss) {
-                    Text("取消", color = colors.ink2, fontSize = 14.sp)
-                }
-                Spacer(Modifier.width(8.dp))
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (canSave) colors.brand else colors.lineStrong)
-                        .clickable(enabled = canSave) { submit() }
-                        .padding(horizontal = 26.dp, vertical = 11.dp),
-                ) {
-                    Text(
-                        text = "保存",
-                        color = if (canSave) colors.onBrand else colors.panel,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -400,6 +396,87 @@ fun EntryEditorSheet(
                 },
                 onCancel = { showDatePicker = false },
             )
+        }
+    }
+}
+
+/** 右上角的保存。金额没填时是灰的，按不动。 */
+@Composable
+private fun SaveChip(enabled: Boolean, onClick: () -> Unit) {
+    val colors = LocalPotColors.current
+    val haptics = rememberHaptics()
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (enabled) colors.brand else colors.panel2)
+            .clickable(enabled = enabled) {
+                haptics(Haptic.Confirm)
+                onClick()
+            }
+            .padding(horizontal = 15.dp, vertical = 7.dp),
+    ) {
+        Text(
+            text = "保存",
+            color = if (enabled) colors.onBrand else colors.ink3,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+/**
+ * 「这条的来历」：来源、具体时间、退款、交易单号、记录时间。
+ * 这些都是表单改不了、但看账时想知道的信息，集中放在删除按钮上面。
+ */
+@Composable
+private fun MetaCard(entry: Entry) {
+    val colors = LocalPotColors.current
+    val rows = buildList {
+        add("时间" to if (entry.time.isBlank()) "未记录具体时间" else entry.time)
+        add("来源" to sourceLabel(entry.source))
+        if (entry.refundedAmount > 0) {
+            val at = if (entry.refundedAt.isBlank()) "" else " · 退款于 ${Fmt.shortDate(entry.refundedAt)}"
+            add("退款" to "已退 ${Fmt.yuan(entry.refundedAmount)}$at")
+        }
+        val status = when {
+            entry.archived -> "已收起，列表和合计里都不算"
+            entry.excluded && entry.kind == Kind.EXPENSE -> "退款记录，不计入合计"
+            entry.excluded -> "不计入合计"
+            else -> ""
+        }
+        if (status.isNotEmpty()) add("状态" to status)
+        if (entry.externalId.isNotBlank()) add("单号" to entry.externalId)
+        if (entry.createdAt.isNotBlank()) add("记录于" to Fmt.stampLabel(entry.createdAt))
+    }
+
+    FieldLabel("这条的来历")
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.panel2)
+            .padding(horizontal = 14.dp, vertical = 2.dp),
+    ) {
+        rows.forEachIndexed { index, (label, value) ->
+            if (index > 0) Hairline()
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 9.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.ink3,
+                    modifier = Modifier.width(52.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.ink2,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }

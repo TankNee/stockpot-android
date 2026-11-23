@@ -337,6 +337,8 @@ fun SheetHeader(
     title: String,
     subtitle: String? = null,
     onClose: (() -> Unit)? = null,
+    /** 右上角的动作，比如「保存」。排在最右边，关闭按钮在它后面。 */
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     val colors = LocalPotColors.current
     Row(
@@ -349,8 +351,19 @@ fun SheetHeader(
             Text(title, style = MaterialTheme.typography.titleLarge, color = colors.ink)
             if (subtitle != null) {
                 Spacer(Modifier.height(2.dp))
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = colors.ink3)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.ink3,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
+        }
+        if (trailing != null) {
+            Spacer(Modifier.width(8.dp))
+            trailing()
+            Spacer(Modifier.width(2.dp))
         }
         if (onClose != null) {
             IconButton(onClick = onClose, modifier = Modifier.size(40.dp)) {
