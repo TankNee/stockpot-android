@@ -58,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -760,6 +761,7 @@ private fun SearchField(
     val colors = LocalPotColors.current
     // 整行都能点：之前只有占位文字那一小块能吃点击，点框里其他地方没反应
     val focus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -768,7 +770,11 @@ private fun SearchField(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-            ) { focus.requestFocus() }
+            ) {
+                // 已经把焦点留在框里、但键盘被收下去的情况，点一下也要能叫回来
+                focus.requestFocus()
+                keyboard?.show()
+            }
             .padding(horizontal = 11.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

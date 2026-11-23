@@ -8,6 +8,8 @@ captures/
 .externalNativeBuild
 .cxx
 *.apk
+# 桌面端互通时随手导出的账本，别进仓库
+stockpot-ledger-*.json
 
 # 发布用的 key 跟着仓库走，不然换台机器就签不出能覆盖安装的包。
 # 其它随手生成的 keystore 仍然忽略。
