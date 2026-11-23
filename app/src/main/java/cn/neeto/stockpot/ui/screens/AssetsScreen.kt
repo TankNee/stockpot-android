@@ -51,6 +51,10 @@ private data class KindTotal(val kind: String, val label: String, val total: Lon
 @Composable
 fun AssetsScreen(
     ledger: Ledger,
+    stockValue: Long,
+    stockPnl: Long,
+    stockAccountCount: Int,
+    onOpenStocks: () -> Unit,
     onAdd: () -> Unit,
     onOpenWallet: (Wallet?) -> Unit,
 ) {
@@ -59,33 +63,45 @@ fun AssetsScreen(
     val wallets = ledger.wallets
     // 关掉「计入总资产」的账户仍留在列表里，但不参与净资产和构成，只当备注看
     val counted = wallets.filter { it.countInAssets }
-    val net = remember(counted) { counted.sumOf { it.balance } }
-    val assets = remember(counted) { counted.filter { !isLiability(it) }.sumOf { it.balance } }
+    val walletNet = remember(counted) { counted.sumOf { it.balance } }
+    val net = walletNet + stockValue
+    val assets = remember(counted) { counted.filter { !isLiability(it) }.sumOf { it.balance } } + stockValue
     val debts = remember(counted) { counted.filter { isLiability(it) }.sumOf { it.balance } }
     val entryNet = remember(ledger.entries) { LedgerMath.allTimeNet(ledger.entries) }
 
     // 一张环形图那种「按类型分」的口径，只统计资产侧，负债不进占比
-    val kindTotals = remember(counted) {
+    val kindOptions = remember(wallets) { walletKindOptions(wallets) }
+    val kindTotals = remember(counted, kindOptions, stockValue) {
         val positive = counted.filter { !isLiability(it) }.groupBy { it.kind }
-        val base = positive.values.sumOf { list -> list.sumOf { it.balance } }.coerceAtLeast(1L)
-        walletKinds.mapNotNull { (kind, label) ->
+        val base = (positive.values.sumOf { list -> list.sumOf { it.balance } } + stockValue)
+            .coerceAtLeast(1L)
+        val walletRows = kindOptions.mapNotNull { (kind, label) ->
             val total = positive[kind]?.sumOf { it.balance } ?: 0L
             if (total <= 0L) null else KindTotal(kind, label, total, total.toFloat() / base)
-        }.sortedByDescending { it.total }
+        }
+        val withStock = if (stockValue > 0) {
+            walletRows + KindTotal("stock", "股票", stockValue, stockValue.toFloat() / base)
+        } else {
+            walletRows
+        }
+        withStock.sortedByDescending { it.total }
     }
 
-    val groups = remember(wallets) {
-        walletKinds.map { (kind, label) ->
+    val groups = remember(wallets, kindOptions) {
+        kindOptions.map { (kind, label) ->
             label to wallets.filter { it.kind == kind }.sortedByDescending { it.balance }
         }.filter { it.second.isNotEmpty() }
     }
 
-    if (wallets.isEmpty()) {
+    if (wallets.isEmpty() && stockAccountCount == 0) {
         EmptyState(
             title = "还没有账户",
             body = "添加银行卡、微信零钱或信用卡，这里就能看到总资产和净资产。余额自己维护，账本只记录钱的流动。",
         ) {
-            PrimaryButton("添加账户", onClick = onAdd)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                PrimaryButton("添加账户", onClick = onAdd)
+                GhostButton("股票账户", onOpenStocks)
+            }
         }
     } else {
         LazyColumn(
@@ -104,7 +120,11 @@ fun AssetsScreen(
                     )
                     Spacer(Modifier.height(5.dp))
                     Text(
-                        text = "${wallets.size} 个账户 · 余额手动维护，不随账目自动变",
+                        text = if (stockAccountCount > 0) {
+                            "${wallets.size} 个账户 + ${stockAccountCount} 个股票账户 · 余额与持仓自己维护"
+                        } else {
+                            "${wallets.size} 个账户 · 余额手动维护，不随账目自动变"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = colors.ink3,
                     )
@@ -128,6 +148,50 @@ fun AssetsScreen(
             if (kindTotals.isNotEmpty()) {
                 item(key = "mix", contentType = "card") {
                     CompositionCard(kindTotals = kindTotals, total = assets)
+                }
+            }
+
+            if (stockAccountCount > 0) {
+                item(key = "stock-card", contentType = "card") {
+                    PotCard(onClick = onOpenStocks) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(colors.brandTint),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("📈", fontSize = 18.sp)
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("股票账户", style = MaterialTheme.typography.bodyLarge, color = colors.ink)
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    "$stockAccountCount 个账户 · 市值 ${Fmt.yuan(stockValue)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.ink3,
+                                )
+                            }
+                            Text(
+                                text = (if (stockPnl > 0) "+" else if (stockPnl < 0) "-" else "") +
+                                    Fmt.yuan(if (stockPnl < 0) -stockPnl else stockPnl),
+                                style = MoneyStyle.copy(fontSize = 15.sp),
+                                color = when {
+                                    stockPnl > 0 -> colors.expense
+                                    stockPnl < 0 -> colors.income
+                                    else -> colors.ink3
+                                },
+                            )
+                            Icon(
+                                Icons.Outlined.ChevronRight,
+                                contentDescription = null,
+                                tint = colors.ink3,
+                                modifier = Modifier.padding(start = 4.dp).size(17.dp),
+                            )
+                        }
+                    }
                 }
             }
 

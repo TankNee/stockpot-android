@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.AlertDialog
@@ -54,6 +55,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.neeto.stockpot.core.data.EntryInput
@@ -95,6 +97,7 @@ fun EntryEditorSheet(
     var projectId by remember { mutableStateOf(existing?.projectId ?: "") }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var showAccountPicker by remember { mutableStateOf(false) }
 
     // 账户候选：资产页里勾了「记账时可被选择」的账户优先，再补上历史导入留下的账户名
     val accountCandidates = remember(ledger.wallets, ledger.accounts) {
@@ -280,22 +283,7 @@ fun EntryEditorSheet(
 
             Spacer(Modifier.height(14.dp))
             FieldLabel("账户")
-            PlainField(
-                value = account,
-                placeholder = "比如 微信零钱",
-                onValueChange = { account = it },
-            )
-            if (accountCandidates.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    accountCandidates.forEach { candidate ->
-                        Chip(label = candidate, active = account == candidate, onClick = { account = candidate })
-                    }
-                }
-            }
+            AccountSelector(value = account, onClick = { showAccountPicker = true })
 
             Spacer(Modifier.height(14.dp))
             FieldLabel("备注")
@@ -377,6 +365,18 @@ fun EntryEditorSheet(
         )
     }
 
+    if (showAccountPicker) {
+        AccountPickerDialog(
+            options = accountCandidates,
+            selected = account,
+            onDismiss = { showAccountPicker = false },
+            onPick = {
+                account = it
+                showAccountPicker = false
+            },
+        )
+    }
+
     if (showDatePicker) {
         val pickerState = rememberDatePickerState(initialSelectedDateMillis = Fmt.epochMillis(date))
         DatePickerDialog(
@@ -404,6 +404,145 @@ private fun FieldLabel(text: String) {
         style = MaterialTheme.typography.labelSmall,
         color = colors.ink3,
         modifier = Modifier.padding(bottom = 7.dp),
+    )
+}
+
+/** 账户选择：点开列表挑，不用打字。 */
+@Composable
+private fun AccountSelector(value: String, onClick: () -> Unit) {
+    val colors = LocalPotColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.panel2)
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = value.ifEmpty { "选择账户" },
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (value.isEmpty()) colors.ink3 else colors.ink,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Icon(
+            Icons.Outlined.ChevronRight,
+            contentDescription = null,
+            tint = colors.ink3,
+            modifier = Modifier.size(17.dp),
+        )
+    }
+}
+
+/** 账户列表：钱包里勾了「记账时可被选择」的在前，导入识别的账户名垫后。 */
+@Composable
+private fun AccountPickerDialog(
+    options: List<String>,
+    selected: String,
+    onDismiss: () -> Unit,
+    onPick: (String) -> Unit,
+) {
+    val colors = LocalPotColors.current
+    var query by remember { mutableStateOf("") }
+    val filtered = remember(options, query) {
+        val needle = query.trim()
+        if (needle.isEmpty()) options else options.filter { it.contains(needle, ignoreCase = true) }
+    }
+    val canCreate = query.isNotBlank() && options.none { it.equals(query.trim(), ignoreCase = true) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.panel,
+        title = { Text("选择账户", style = MaterialTheme.typography.titleMedium, color = colors.ink) },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                TextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("搜索，或输入新账户名", color = colors.ink3, fontSize = 14.sp) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = colors.panel2,
+                        unfocusedContainerColor = colors.panel2,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        cursorColor = colors.brand,
+                    ),
+                )
+                Spacer(Modifier.height(8.dp))
+                Column(
+                    modifier = Modifier
+                        .height(300.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    if (canCreate) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(colors.brandTint)
+                                .clickable { onPick(query.trim()) }
+                                .padding(horizontal = 10.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "使用「${query.trim()}」",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.brandInk,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                    }
+                    filtered.forEach { name ->
+                        val active = name == selected
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(if (active) colors.brandTint else Color.Transparent)
+                                .clickable { onPick(name) }
+                                .padding(horizontal = 10.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (active) colors.brandInk else colors.ink2,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (active) {
+                                Icon(
+                                    Icons.Outlined.Check,
+                                    contentDescription = null,
+                                    tint = colors.brandInk,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
+                    }
+                    if (filtered.isEmpty() && !canCreate) {
+                        Text(
+                            "没有匹配的账户，上面的输入框里可以直接新建一个。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.ink3,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭", fontSize = 15.sp, color = colors.ink2) }
+        },
     )
 }
 

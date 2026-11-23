@@ -72,6 +72,11 @@ fun OverviewScreen(
     onOpenProject: (String) -> Unit,
     onAddEntry: () -> Unit,
     onLoadDemo: () -> Unit,
+    stockValue: Long,
+    stockPnl: Long,
+    stockDayPnl: Long,
+    stockAccountCount: Int,
+    onOpenStocks: () -> Unit,
 ) {
     val colors = LocalPotColors.current
     val entries = ledger.entries
@@ -185,11 +190,85 @@ fun OverviewScreen(
             RecentCard(recent = recent, onOpenEntry = onOpenEntry, onOpenAll = { onOpenMonth(month) })
         }
 
+        item(key = "stocks", contentType = "card") {
+            StocksCard(
+                value = stockValue,
+                pnl = stockPnl,
+                dayPnl = stockDayPnl,
+                accounts = stockAccountCount,
+                onClick = onOpenStocks,
+            )
+        }
+
         item(key = "projects", contentType = "card") {
             ProjectsCard(
                 projects = projectPeek,
                 onOpenProjects = onOpenProjects,
                 onOpenProject = onOpenProject,
+            )
+        }
+    }
+}
+
+/** 总览里的股票入口：市值 + 今日/持仓盈亏，点进去看账户和持仓。 */
+@Composable
+private fun StocksCard(
+    value: Long,
+    pnl: Long,
+    dayPnl: Long,
+    accounts: Int,
+    onClick: () -> Unit,
+) {
+    val colors = LocalPotColors.current
+    PotCard(onClick = onClick) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.brandTint),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("📈", fontSize = 18.sp)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("股票", style = MaterialTheme.typography.titleMedium, color = colors.ink)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    if (accounts == 0) "建个券商账户，把持仓记进来" else "$accounts 个账户 · 市值 ${Fmt.yuan(value)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.ink3,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (accounts > 0) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = (if (pnl > 0) "+" else if (pnl < 0) "-" else "") +
+                            Fmt.yuan(if (pnl < 0) -pnl else pnl),
+                        style = MoneyStyle.copy(fontSize = 15.sp),
+                        color = when {
+                            pnl > 0 -> colors.expense
+                            pnl < 0 -> colors.income
+                            else -> colors.ink3
+                        },
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "今日 " + (if (dayPnl > 0) "+" else if (dayPnl < 0) "-" else "") +
+                            Fmt.yuan(if (dayPnl < 0) -dayPnl else dayPnl),
+                        fontSize = 11.sp,
+                        color = colors.ink3,
+                    )
+                }
+            }
+            Icon(
+                Icons.Outlined.ChevronRight,
+                contentDescription = null,
+                tint = colors.ink3,
+                modifier = Modifier.padding(start = 6.dp).size(17.dp),
             )
         }
     }

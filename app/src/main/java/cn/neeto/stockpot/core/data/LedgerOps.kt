@@ -2,11 +2,14 @@ package cn.neeto.stockpot.core.data
 
 import cn.neeto.stockpot.core.model.CategoryDef
 import cn.neeto.stockpot.core.model.Entry
+import cn.neeto.stockpot.core.model.Holding
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Project
 import cn.neeto.stockpot.core.model.Rule
 import cn.neeto.stockpot.core.model.Source
+import cn.neeto.stockpot.core.model.Stock
+import cn.neeto.stockpot.core.model.StockAccount
 import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.core.model.builtinIcon
 import cn.neeto.stockpot.core.model.defaultCategories
@@ -268,6 +271,47 @@ object LedgerOps {
         wallets.map { if (it.id == wallet.id) wallet.copy(updatedAt = Fmt.stamp()) else it }
 
     fun deleteWallet(wallets: List<Wallet>, id: String): List<Wallet> = wallets.filterNot { it.id == id }
+
+    /* ------------------------------ 股票 ------------------------------ */
+
+    fun addStockAccount(accounts: List<StockAccount>, name: String): List<StockAccount> {
+        val clean = name.trim()
+        if (clean.isEmpty()) return accounts
+        return accounts + StockAccount(id = newId("sacc"), name = clean, updatedAt = Fmt.stamp())
+    }
+
+    fun updateStockAccount(accounts: List<StockAccount>, account: StockAccount): List<StockAccount> =
+        accounts.map { if (it.id == account.id) account.copy(updatedAt = Fmt.stamp()) else it }
+
+    fun deleteStockAccount(accounts: List<StockAccount>, id: String): List<StockAccount> =
+        accounts.filterNot { it.id == id }
+
+    /** 股票池按 id 合并：同一只票只留一条，名字以传入的为准。 */
+    fun upsertStock(stocks: List<Stock>, stock: Stock): List<Stock> =
+        if (stocks.any { it.id == stock.id }) {
+            stocks.map { if (it.id == stock.id) stock.copy(name = stock.name.ifEmpty { it.name }) else it }
+        } else {
+            stocks + stock
+        }
+
+    fun putHolding(account: StockAccount, stockId: String, holding: Holding): StockAccount =
+        account.copy(entries = account.entries + (stockId to holding), updatedAt = Fmt.stamp())
+
+    fun removeHolding(account: StockAccount, stockId: String): StockAccount =
+        account.copy(entries = account.entries - stockId, updatedAt = Fmt.stamp())
+
+    /** 行情回来时把股票名补齐，用户添加时只输了代码也能显示中文名。 */
+    fun fillStockNames(stocks: List<Stock>, names: Map<String, String>): List<Stock> =
+        stocks.map { stock ->
+            val fresh = names[stock.id]
+            if (fresh.isNullOrBlank() || fresh == stock.name) stock else stock.copy(name = fresh)
+        }
+
+    /** 股票池里已经没人持有的票清掉，避免下拉里堆垃圾。 */
+    fun pruneStocks(stocks: List<Stock>, accounts: List<StockAccount>): List<Stock> {
+        val used = accounts.flatMap { it.entries.filter { e -> e.value.shares > 0 }.keys }.toSet()
+        return stocks.filter { it.id in used }
+    }
 
     /* ------------------------------ 其它 ------------------------------ */
 

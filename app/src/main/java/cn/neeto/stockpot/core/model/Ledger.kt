@@ -171,6 +171,9 @@ data class Ledger(
     val rules: List<Rule> = emptyList(),
     val ignoredDuplicates: List<String> = emptyList(),
     val ignoredRepayments: List<String> = emptyList(),
+    /** 股票池与券商账户，结构对着桌面端的 stockpot.json */
+    val stocks: List<Stock> = emptyList(),
+    val stockAccounts: List<StockAccount> = emptyList(),
     val schemaVersion: Int = SCHEMA_VERSION,
 ) {
     fun categoryKind(path: String): String {

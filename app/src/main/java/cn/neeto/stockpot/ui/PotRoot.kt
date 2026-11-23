@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.neeto.stockpot.core.data.Fmt
+import cn.neeto.stockpot.core.data.StockMath
 import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.core.util.Documents
@@ -73,6 +74,8 @@ import cn.neeto.stockpot.ui.screens.OverviewScreen
 import cn.neeto.stockpot.ui.screens.ProjectDetailScreen
 import cn.neeto.stockpot.ui.screens.ProjectsScreen
 import cn.neeto.stockpot.ui.screens.SettingsScreen
+import cn.neeto.stockpot.ui.screens.StockAccountScreen
+import cn.neeto.stockpot.ui.screens.StocksScreen
 import cn.neeto.stockpot.ui.screens.WalletEditorScreen
 import cn.neeto.stockpot.ui.screens.WalletKindScreen
 import cn.neeto.stockpot.ui.theme.LocalPotColors
@@ -93,6 +96,8 @@ private const val ROUTE_PROJECTS = "projects"
 private const val PROJECT_PREFIX = "project/"
 private const val ROUTE_WALLET_EDIT = "wallet-edit"
 private const val ROUTE_WALLET_KIND = "wallet-kind"
+private const val ROUTE_STOCKS = "stocks"
+private const val STOCK_ACC_PREFIX = "stock-acc/"
 
 private fun tabIndex(id: String): Int = tabs.indexOfFirst { it.id == id }.let { if (it < 0) 0 else it }
 
@@ -104,13 +109,16 @@ private fun routeOrder(route: String): Int = when {
     route.startsWith(PROJECT_PREFIX) -> 100
     route == ROUTE_WALLET_EDIT -> 98
     route == ROUTE_WALLET_KIND -> 97
+    route.startsWith(STOCK_ACC_PREFIX) -> 95
+    route == ROUTE_STOCKS -> 94
     route == ROUTE_PROJECTS || route == ROUTE_IMPORT -> 90
     else -> tabIndex(route)
 }
 
 private fun isOverlay(route: String): Boolean =
     route == ROUTE_IMPORT || route == ROUTE_PROJECTS || route.startsWith(PROJECT_PREFIX) ||
-        route == ROUTE_WALLET_EDIT || route == ROUTE_WALLET_KIND
+        route == ROUTE_WALLET_EDIT || route == ROUTE_WALLET_KIND ||
+        route == ROUTE_STOCKS || route.startsWith(STOCK_ACC_PREFIX)
 
 /** tab 访问轨迹，用来接管返回键：去哪儿的顺序都记着，返回就一步步退。 */
 private const val TRAIL_SEP = "|"
@@ -128,6 +136,10 @@ fun PotRoot(
 ) {
     val colors = LocalPotColors.current
     val ledger by vm.ledger.collectAsStateWithLifecycle()
+    val quotes by vm.quotes.collectAsStateWithLifecycle()
+    val quoteBusy by vm.quoteBusy.collectAsStateWithLifecycle()
+    val quoteNote by vm.quoteNote.collectAsStateWithLifecycle()
+    val rates by vm.rates.collectAsStateWithLifecycle()
 
     var route by rememberSaveable { mutableStateOf("overview") }
     var lastTab by rememberSaveable { mutableStateOf("overview") }
@@ -153,12 +165,21 @@ fun PotRoot(
 
     val overlay = isOverlay(route)
     val activeTab = tabs.firstOrNull { it.id == route } ?: tabs.first { it.id == lastTab }
+    val stockTotals = remember(ledger.stockAccounts, ledger.stocks, quotes, rates) {
+        StockMath.totals(ledger.stockAccounts, ledger.stocks, quotes, rates)
+    }
     val subtitle = when {
         route == ROUTE_IMPORT -> "微信 / 支付宝 / iCost / 通用 CSV"
         route == ROUTE_PROJECTS -> "按一件事看花销，不改账目本身"
         route == ROUTE_WALLET_KIND -> "账户类型"
         route == ROUTE_WALLET_EDIT -> "余额自己维护，账本只记录钱的流动"
+        route == ROUTE_STOCKS || route.startsWith(STOCK_ACC_PREFIX) -> "持仓成本自己维护，行情来自腾讯"
         else -> activeTab.hint
+    }
+
+    // 进到有股票的页面时顺手拉一次行情；失败就安静着，用最后的价格
+    LaunchedEffect(ledger.stocks.size) {
+        if (ledger.stocks.isNotEmpty()) vm.refreshQuotes(silent = true)
     }
 
     LaunchedEffect(undoEntry) {
@@ -307,6 +328,11 @@ fun PotRoot(
                                 vm.loadDemo()
                                 toast = "示例账本已载入"
                             },
+                            stockValue = stockTotals.marketValue,
+                            stockPnl = stockTotals.pnl,
+                            stockDayPnl = stockTotals.dayPnl,
+                            stockAccountCount = ledger.stockAccounts.size,
+                            onOpenStocks = { openOverlay(ROUTE_STOCKS) },
                         )
 
                         current == "entries" -> EntriesScreen(
@@ -321,6 +347,10 @@ fun PotRoot(
 
                         current == "assets" -> AssetsScreen(
                             ledger = ledger,
+                            stockValue = stockTotals.marketValue,
+                            stockPnl = stockTotals.pnl,
+                            stockAccountCount = ledger.stockAccounts.size,
+                            onOpenStocks = { openOverlay(ROUTE_STOCKS) },
                             onAdd = { openWallet(null) },
                             onOpenWallet = { openWallet(it) },
                         )
@@ -349,15 +379,22 @@ fun PotRoot(
                         )
 
                         current == ROUTE_WALLET_KIND -> WalletKindScreen(
+                            ledger = ledger,
                             selected = walletDraft?.kind ?: "debit",
-                            onPick = { kind ->
-                                walletDraft = walletDraft?.copy(kind = kind)
+                            onPick = { kind, presetName ->
+                                val draft = walletDraft
+                                if (draft != null) {
+                                    walletDraft = draft.copy(
+                                        kind = kind,
+                                        name = if (draft.name.isBlank() && presetName.isNotEmpty()) presetName else draft.name,
+                                    )
+                                }
                                 if (parentRoute == ROUTE_WALLET_EDIT) {
-                                    // 编辑途中回来改类型，退回到原来那张表
+                                    // 编辑途中回来改类型，退回原来那张表
                                     popOverlay()
                                 } else {
-                                    // 新增的第一步：接着进表单，返回仍然回到资产页
-                                    route = ROUTE_WALLET_EDIT
+                                    // 新增的第一步：进表单，返回时还会先回到这一页
+                                    openOverlay(ROUTE_WALLET_EDIT)
                                 }
                             },
                             onBack = { popOverlay() },
@@ -376,6 +413,51 @@ fun PotRoot(
                             onDelete = { wallet ->
                                 vm.deleteWallet(wallet.id)
                                 toast = "账户已删除"
+                                popOverlay()
+                            },
+                        )
+
+                        current == ROUTE_STOCKS -> StocksScreen(
+                            ledger = ledger,
+                            quotes = quotes,
+                            rates = rates,
+                            busy = quoteBusy,
+                            note = quoteNote,
+                            onBack = { popOverlay() },
+                            onRefresh = { vm.refreshQuotes() },
+                            onOpenAccount = { openOverlay(STOCK_ACC_PREFIX + it) },
+                            onAddAccount = vm::addStockAccount,
+                        )
+
+                        current.startsWith(STOCK_ACC_PREFIX) -> StockAccountScreen(
+                            ledger = ledger,
+                            accountId = current.removePrefix(STOCK_ACC_PREFIX),
+                            quotes = quotes,
+                            rates = rates,
+                            busy = quoteBusy,
+                            onBack = { popOverlay() },
+                            onRefresh = { vm.refreshQuotes() },
+                            onSaveHolding = { stock, costE4, shares ->
+                                vm.saveHolding(
+                                    current.removePrefix(STOCK_ACC_PREFIX),
+                                    stock,
+                                    costE4,
+                                    shares,
+                                )
+                                vm.refreshQuotes(silent = true)
+                            },
+                            onRemoveHolding = { stockId ->
+                                vm.removeHolding(current.removePrefix(STOCK_ACC_PREFIX), stockId)
+                            },
+                            onRename = { name ->
+                                val target = ledger.stockAccounts.firstOrNull {
+                                    it.id == current.removePrefix(STOCK_ACC_PREFIX)
+                                }
+                                if (target != null) vm.renameStockAccount(target.copy(name = name))
+                            },
+                            onDelete = {
+                                vm.deleteStockAccount(current.removePrefix(STOCK_ACC_PREFIX))
+                                toast = "股票账户已删除"
                                 popOverlay()
                             },
                         )

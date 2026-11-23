@@ -2,6 +2,7 @@ package cn.neeto.stockpot.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import cn.neeto.stockpot.PotApp
 import cn.neeto.stockpot.core.data.EntryInput
 import cn.neeto.stockpot.core.data.Fmt
@@ -13,12 +14,20 @@ import cn.neeto.stockpot.core.importer.ImportPreview
 import cn.neeto.stockpot.core.importer.ParsedBill
 import cn.neeto.stockpot.core.model.CategoryDef
 import cn.neeto.stockpot.core.model.Entry
+import cn.neeto.stockpot.core.model.Holding
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Project
+import cn.neeto.stockpot.core.model.Quote
+import cn.neeto.stockpot.core.model.Rates
 import cn.neeto.stockpot.core.model.Rule
+import cn.neeto.stockpot.core.model.Stock
+import cn.neeto.stockpot.core.model.StockAccount
 import cn.neeto.stockpot.core.model.Wallet
+import cn.neeto.stockpot.core.stock.QuoteClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** 一次「选了文件」之后的结果：账单要确认，账本 JSON 也要确认，失败要说人话。 */
@@ -100,6 +109,79 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteWallet(id: String) = store.update {
         it.copy(wallets = LedgerOps.deleteWallet(it.wallets, id))
+    }
+
+    /* ------------------------------ 股票 ------------------------------ */
+
+    private val _quotes = MutableStateFlow<Map<String, Quote>>(emptyMap())
+    val quotes: StateFlow<Map<String, Quote>> = _quotes
+
+    private val _quoteBusy = MutableStateFlow(false)
+    val quoteBusy: StateFlow<Boolean> = _quoteBusy
+
+    private val _quoteNote = MutableStateFlow<String?>(null)
+    val quoteNote: StateFlow<String?> = _quoteNote
+
+    private val _rates = MutableStateFlow(Rates())
+    val rates: StateFlow<Rates> = _rates
+
+    /** 拉一次行情。`silent` 的时候失败不吭声，页面自己决定要不要提示。 */
+    fun refreshQuotes(silent: Boolean = false) {
+        if (_quoteBusy.value) return
+        val stocks = store.data.value.stocks
+        if (stocks.isEmpty()) {
+            _quoteNote.value = null
+            return
+        }
+        viewModelScope.launch {
+            _quoteBusy.value = true
+            val fetched = runCatching { QuoteClient.fetch(stocks) }.getOrDefault(emptyMap())
+            runCatching { QuoteClient.fetchRates() }.getOrNull()?.let { _rates.value = it }
+            if (fetched.isNotEmpty()) {
+                _quotes.value = _quotes.value + fetched
+                val names = fetched.mapValues { it.value.name }
+                store.update { ledger ->
+                    val renamed = LedgerOps.fillStockNames(ledger.stocks, names)
+                    if (renamed == ledger.stocks) ledger else ledger.copy(stocks = renamed)
+                }
+                _quoteNote.value = if (fetched.size < stocks.size) "部分标的没拿到行情" else null
+            } else if (!silent) {
+                _quoteNote.value = "行情没拉到，检查一下网络"
+            }
+            _quoteBusy.value = false
+        }
+    }
+
+    fun addStockAccount(name: String) = store.update {
+        it.copy(stockAccounts = LedgerOps.addStockAccount(it.stockAccounts, name))
+    }
+
+    fun renameStockAccount(account: StockAccount) = store.update {
+        it.copy(stockAccounts = LedgerOps.updateStockAccount(it.stockAccounts, account))
+    }
+
+    fun deleteStockAccount(id: String) = store.update { ledger ->
+        val rest = LedgerOps.deleteStockAccount(ledger.stockAccounts, id)
+        ledger.copy(stockAccounts = rest, stocks = LedgerOps.pruneStocks(ledger.stocks, rest))
+    }
+
+    /** 一个账户里加/改一只票。 */
+    fun saveHolding(accountId: String, stock: Stock, costE4: Long, shares: Long) = store.update { ledger ->
+        val accounts = ledger.stockAccounts.map { account ->
+            if (account.id == accountId) {
+                LedgerOps.putHolding(account, stock.id, Holding(costE4 = costE4, shares = shares))
+            } else {
+                account
+            }
+        }
+        ledger.copy(stocks = LedgerOps.upsertStock(ledger.stocks, stock), stockAccounts = accounts)
+    }
+
+    fun removeHolding(accountId: String, stockId: String) = store.update { ledger ->
+        val accounts = ledger.stockAccounts.map { account ->
+            if (account.id == accountId) LedgerOps.removeHolding(account, stockId) else account
+        }
+        ledger.copy(stocks = LedgerOps.pruneStocks(ledger.stocks, accounts), stockAccounts = accounts)
     }
 
     /* ------------------------------ 数据 ------------------------------ */

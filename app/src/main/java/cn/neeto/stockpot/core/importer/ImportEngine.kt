@@ -353,6 +353,8 @@ object ImportEngine {
         val projectIds = next.projects.map { it.id }.toHashSet()
         val walletIds = next.wallets.map { it.id }.toHashSet()
         val importIds = next.imports.map { it.id }.toHashSet()
+        val stockIds = next.stocks.map { it.id }.toHashSet()
+        val stockAccountIds = next.stockAccounts.map { it.id }.toHashSet()
         val accounts = (next.accounts + incoming.accounts).distinct()
 
         next = next.copy(
@@ -361,6 +363,8 @@ object ImportEngine {
             projects = next.projects + incoming.projects.filter { it.id !in projectIds },
             wallets = next.wallets + incoming.wallets.filter { it.id !in walletIds },
             imports = next.imports + incoming.imports.filter { it.id !in importIds },
+            stocks = next.stocks + incoming.stocks.filter { it.id !in stockIds },
+            stockAccounts = next.stockAccounts + incoming.stockAccounts.filter { it.id !in stockAccountIds },
             accounts = accounts,
         )
 

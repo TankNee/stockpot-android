@@ -53,12 +53,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.neeto.stockpot.core.data.Fmt
+import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.ui.components.Hairline
 import cn.neeto.stockpot.ui.components.PotCard
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 
-/** 账户类型：顺序决定分组与选择页的顺序，`credit` 单独当负债看。 */
+/** 内置类型：顺序决定分组与选择页的顺序，`credit` 单独当负债看。 */
 val walletKinds: List<Pair<String, String>> = listOf(
     "debit" to "储蓄卡",
     "cash" to "现金 / 零钱",
@@ -70,8 +71,32 @@ val walletKinds: List<Pair<String, String>> = listOf(
     "other" to "其他",
 )
 
+/** 自定义类型的 kind 直接存中文名，所以未知 kind 原样显示。 */
 fun walletKindLabel(kind: String): String =
-    walletKinds.firstOrNull { it.first == kind }?.second ?: "其他"
+    walletKinds.firstOrNull { it.first == kind }?.second ?: kind.ifEmpty { "其他" }
+
+/** 内置类型 + 账本里已经用过的自定义类型，资产页分组按这个顺序走。 */
+fun walletKindOptions(wallets: List<Wallet>): List<Pair<String, String>> {
+    val builtin = walletKinds.map { it.first }.toSet()
+    val custom = wallets.map { it.kind }
+        .filter { it.isNotEmpty() && it !in builtin }
+        .distinct()
+    return walletKinds + custom.map { it to it }
+}
+
+/** 从导入账单里的账户名猜一个类型，猜错了在表单里还能改。 */
+fun inferWalletKind(name: String): String {
+    val n = name.lowercase()
+    return when {
+        listOf("信用卡", "花呗", "白条", "借呗").any { n.contains(it) } -> "credit"
+        listOf("公积金").any { n.contains(it) } -> "provident"
+        listOf("医保", "社保").any { n.contains(it) } -> "medical"
+        listOf("养老", "年金").any { n.contains(it) } -> "pension"
+        listOf("证券", "股票", "基金", "理财", "投资", "余额宝", "零钱通", "余利宝").any { n.contains(it) } -> "investment"
+        listOf("支付宝", "微信", "零钱", "现金", "钱包", "qq").any { n.contains(it) } -> "cash"
+        else -> "debit"
+    }
+}
 
 private fun walletKindEmoji(kind: String): String = when (kind) {
     "debit" -> "🏦"
@@ -88,8 +113,8 @@ private fun walletKindEmoji(kind: String): String = when (kind) {
 @Composable
 fun WalletKindBadge(kind: String, size: Int = 38) {
     val colors = LocalPotColors.current
-    val index = walletKinds.indexOfFirst { it.first == kind }.coerceAtLeast(0)
-    val tint = colors.chartPalette[index % colors.chartPalette.size]
+    val index = walletKinds.indexOfFirst { it.first == kind }
+    val tint = colors.chartPalette[(if (index >= 0) index else walletKinds.size) % colors.chartPalette.size]
     Box(
         modifier = Modifier
             .size(size.dp)
@@ -105,23 +130,69 @@ fun WalletKindBadge(kind: String, size: Int = 38) {
 
 @Composable
 fun WalletKindScreen(
+    ledger: Ledger,
     selected: String,
-    onPick: (String) -> Unit,
+    onPick: (kind: String, presetName: String) -> Unit,
     onBack: () -> Unit,
 ) {
     val colors = LocalPotColors.current
+    var customOpen by remember { mutableStateOf(false) }
+
+    // 导入账单里出现过、但还没有建成账户的名字
+    val imported = remember(ledger.accounts, ledger.wallets) {
+        val existing = ledger.wallets.map { it.name.trim().lowercase() }.toSet()
+        ledger.accounts
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && it.lowercase() !in existing }
+            .distinct()
+            .take(12)
+    }
+
     Column(Modifier.fillMaxWidth()) {
         EditorBar(title = "选择类型", onBack = onBack, onConfirm = null)
         LazyColumn(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            if (imported.isNotEmpty()) {
+                item {
+                    Text(
+                        "从导入账单里认出来的账户",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = colors.ink3,
+                        modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                    )
+                }
+                item {
+                    PotCard(padding = PaddingValues(0.dp)) {
+                        imported.forEachIndexed { index, name ->
+                            ImportedAccountRow(
+                                name = name,
+                                kind = inferWalletKind(name),
+                                onClick = { onPick(inferWalletKind(name), name) },
+                            )
+                            if (index < imported.lastIndex) {
+                                Box(Modifier.padding(start = 64.dp)) { Hairline() }
+                            }
+                        }
+                    }
+                }
+                item {
+                    Text(
+                        "点一下就用这个账户名建好，类型是猜的，进表单还能改。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.ink3,
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
+                }
+            }
+
             item {
                 Text(
                     "资金账户",
                     style = MaterialTheme.typography.labelMedium,
                     color = colors.ink3,
-                    modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                    modifier = Modifier.padding(start = 4.dp, top = 6.dp),
                 )
             }
             item {
@@ -131,7 +202,7 @@ fun WalletKindScreen(
                             kind = id,
                             label = label,
                             active = id == selected,
-                            onClick = { onPick(id) },
+                            onClick = { onPick(id, "") },
                         )
                         if (index < walletKinds.lastIndex) {
                             Box(Modifier.padding(start = 64.dp)) { Hairline() }
@@ -139,16 +210,152 @@ fun WalletKindScreen(
                     }
                 }
             }
+
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(colors.panel)
+                        .clickable { customOpen = true }
+                        .padding(horizontal = 14.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("＋", fontSize = 16.sp, color = colors.brandInk)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "自定义类型",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.brandInk,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "比如 数字钱包",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.ink3,
+                    )
+                }
+            }
+
             item {
                 Text(
                     "信用卡把欠款记成负数，净资产会自动扣掉。",
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.ink3,
-                    modifier = Modifier.padding(start = 4.dp, top = 4.dp),
+                    modifier = Modifier.padding(start = 4.dp, top = 2.dp),
                 )
             }
         }
     }
+
+    if (customOpen) {
+        CustomKindDialog(
+            onDismiss = { customOpen = false },
+            onConfirm = { name ->
+                customOpen = false
+                onPick(name, "")
+            },
+        )
+    }
+}
+
+@Composable
+private fun ImportedAccountRow(name: String, kind: String, onClick: () -> Unit) {
+    val colors = LocalPotColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(start = 14.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(colors.panel2),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(name.take(1), fontSize = 16.sp, color = colors.ink2)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = colors.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "识别为 ${walletKindLabel(kind)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.ink3,
+            )
+        }
+        Text(
+            "添加",
+            fontSize = 13.sp,
+            color = colors.brandInk,
+            modifier = Modifier
+                .clip(CircleShape)
+                .background(colors.brandTint)
+                .padding(horizontal = 11.dp, vertical = 5.dp),
+        )
+    }
+}
+
+@Composable
+private fun CustomKindDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    val colors = LocalPotColors.current
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.panel,
+        title = { Text("自定义类型", style = MaterialTheme.typography.titleMedium, color = colors.ink) },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                BasicTextField(
+                    value = name,
+                    onValueChange = { name = it.take(8) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.panel2)
+                        .padding(horizontal = 12.dp, vertical = 13.dp),
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.ink),
+                    cursorBrush = SolidColor(colors.brand),
+                    decorationBox = { inner ->
+                        Box {
+                            if (name.isEmpty()) {
+                                Text("比如 数字钱包、黄金", style = MaterialTheme.typography.bodyMedium, color = colors.ink3)
+                            }
+                            inner()
+                        }
+                    },
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "自定义类型只存在这台手机的账本里，和内置类型一样参与分组和统计。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.ink3,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = name.isNotBlank(),
+                onClick = { onConfirm(name.trim()) },
+            ) {
+                Text("创建", fontSize = 15.sp, color = if (name.isNotBlank()) colors.brand else colors.ink3)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消", fontSize = 15.sp, color = colors.ink2) }
+        },
+    )
 }
 
 @Composable
@@ -336,13 +543,14 @@ fun WalletEditorScreen(
     }
 }
 
-/** 子页面顶栏：返回箭头 + 标题，右侧是可选的圆形确认。 */
+/** 子页面顶栏：返回箭头 + 标题，右侧是可选的圆形确认。股票页也用它。 */
 @Composable
-private fun EditorBar(
+internal fun EditorBar(
     title: String,
     onBack: () -> Unit,
     onConfirm: (() -> Unit)?,
     confirmEnabled: Boolean = true,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     val colors = LocalPotColors.current
     Row(
@@ -377,6 +585,7 @@ private fun EditorBar(
                 )
             }
         }
+        trailing?.invoke()
     }
 }
 
