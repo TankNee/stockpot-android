@@ -104,6 +104,14 @@ private fun routeOrder(route: String): Int = when {
 private fun isOverlay(route: String): Boolean =
     route == ROUTE_IMPORT || route == ROUTE_PROJECTS || route.startsWith(PROJECT_PREFIX)
 
+/** tab 访问轨迹，用来接管返回键：去哪儿的顺序都记着，返回就一步步退。 */
+private const val TRAIL_SEP = "|"
+
+private fun decodeTrail(encoded: String): List<String> =
+    encoded.split(TRAIL_SEP).filter { it.isNotEmpty() }.ifEmpty { listOf("overview") }
+
+private fun encodeTrail(trail: List<String>): String = trail.joinToString(TRAIL_SEP)
+
 @Composable
 fun PotRoot(
     vm: PotViewModel,
@@ -115,8 +123,12 @@ fun PotRoot(
 
     var route by rememberSaveable { mutableStateOf("overview") }
     var lastTab by rememberSaveable { mutableStateOf("overview") }
+    /** 依次点过哪些 tab，返回键按这个轨迹倒退。 */
+    var tabTrail by rememberSaveable { mutableStateOf("overview") }
     /** 叠加页是从哪儿来的，返回时回到那一页（可能是另一个叠加页）。 */
     var parentRoute by rememberSaveable { mutableStateOf<String?>(null) }
+    // 流水页的月份与日期筛选提到这里：从总览点柱状图进来时带一次参数，
+    // 用户关掉之后就是关掉了，切 tab 回来不该再冒出来。
     var entriesMonth by rememberSaveable { mutableStateOf(Fmt.currentMonth()) }
     var entriesDate by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -166,8 +178,21 @@ fun PotRoot(
 
     fun openProject(id: String) = openOverlay(PROJECT_PREFIX + id)
 
-    // 叠加页之间也有层级：项目详情返回项目列表，项目列表返回原 tab
-    BackHandler(enabled = overlay) { popOverlay() }
+    val trail = remember(tabTrail) { decodeTrail(tabTrail) }
+
+    // 叠加页之间也有层级：项目详情返回项目列表，项目列表返回原 tab；
+    // 退回 tab 之后继续按返回，就按访问轨迹一层层往回走。
+    BackHandler(enabled = overlay || trail.size > 1) {
+        if (overlay) {
+            popOverlay()
+        } else {
+            val next = trail.dropLast(1)
+            val target = next.last()
+            tabTrail = encodeTrail(next)
+            lastTab = target
+            route = target
+        }
+    }
 
     fun openEditor(entry: Entry?, date: String) {
         editorEntry = entry
@@ -176,9 +201,14 @@ fun PotRoot(
     }
 
     fun selectTab(id: String) {
-        lastTab = id
+        if (route == id) return
         parentRoute = null
+        lastTab = id
         route = id
+        // 回到轨迹里已经出现过的 tab，就把它后面的记录丢掉，跟浏览器的后退一致
+        val current = decodeTrail(tabTrail)
+        val existing = current.indexOf(id)
+        tabTrail = encodeTrail(if (existing >= 0) current.take(existing + 1) else current + id)
     }
 
     val stateHolder = rememberSaveableStateHolder()
@@ -255,8 +285,10 @@ fun PotRoot(
 
                         current == "entries" -> EntriesScreen(
                             ledger = ledger,
-                            initialMonth = entriesMonth,
-                            initialDate = entriesDate,
+                            month = entriesMonth,
+                            dayFilter = entriesDate,
+                            onMonth = { entriesMonth = it },
+                            onDayFilter = { entriesDate = it },
                             onOpenEntry = { openEditor(it, it.date) },
                             onOpenImport = { openOverlay(ROUTE_IMPORT) },
                         )

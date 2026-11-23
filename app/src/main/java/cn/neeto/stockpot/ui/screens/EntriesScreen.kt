@@ -25,7 +25,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,23 +52,16 @@ import cn.neeto.stockpot.ui.theme.MoneyStyle
 @Composable
 fun EntriesScreen(
     ledger: Ledger,
-    initialMonth: String,
-    initialDate: String?,
+    month: String,
+    dayFilter: String?,
+    onMonth: (String) -> Unit,
+    onDayFilter: (String?) -> Unit,
     onOpenEntry: (Entry) -> Unit,
     onOpenImport: () -> Unit,
 ) {
     val colors = LocalPotColors.current
-    var month by rememberSaveable { mutableStateOf(initialMonth.ifEmpty { Fmt.currentMonth() }) }
     var kindFilter by rememberSaveable { mutableStateOf("all") }
-    var dayFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var query by rememberSaveable { mutableStateOf("") }
-
-    LaunchedEffect(initialDate) {
-        if (initialDate != null) {
-            dayFilter = initialDate
-            month = Fmt.monthOf(initialDate)
-        }
-    }
 
     val entries = remember(ledger.entries, month, kindFilter, dayFilter, query) {
         val needle = query.trim()
@@ -95,8 +87,8 @@ fun EntriesScreen(
         MonthStepper(
             month = month,
             onShift = {
-                month = Fmt.shiftMonth(month, it)
-                dayFilter = null
+                onMonth(Fmt.shiftMonth(month, it))
+                onDayFilter(null)
             },
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
             trailing = {
@@ -131,7 +123,7 @@ fun EntriesScreen(
                     modifier = Modifier
                         .clip(CircleShape)
                         .background(colors.ink)
-                        .clickable { dayFilter = null }
+                        .clickable { onDayFilter(null) }
                         .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

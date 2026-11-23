@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -373,6 +375,7 @@ private fun WalletRow(wallet: Wallet, onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AssetEditorDialog(
     wallet: Wallet?,
@@ -435,11 +438,16 @@ private fun AssetEditorDialog(
                     colors = plainFieldColors(),
                 )
                 Spacer(Modifier.height(12.dp))
-                walletKinds.chunked(4).forEach { line ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
-                        line.forEach { (value, label) ->
-                            Chip(label = label, active = kind == value, onClick = { kind = value })
-                        }
+                // 固定每行 4 个会把「现金 / 零钱」这种长标签挤出去，交给 FlowRow 自己折行
+                FlowRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    walletKinds.forEach { (value, label) ->
+                        Chip(label = label, active = kind == value, onClick = { kind = value })
                     }
                 }
                 if (wallet != null) {
