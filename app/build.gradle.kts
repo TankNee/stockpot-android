@@ -23,8 +23,8 @@ android {
         applicationId = "cn.neeto.stockpot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.8.3"
+        versionCode = 14
+        versionName = "0.8.4"
         vectorDrawables.useSupportLibrary = true
     }
 

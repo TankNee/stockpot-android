@@ -17,6 +17,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -65,10 +66,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
@@ -708,6 +715,27 @@ private val PotBarHeight = 56.dp
 private val PotBarInset = 4.dp
 private val PotBarShape = RoundedCornerShape(percent = 50)
 
+/**
+ * 手绘的柔和投影：叠几层半透明圆角矩形，越往外越淡、越往下偏。
+ * 米白底上系统 elevation 的阴影本来就淡，再被背景一压就更看不出来了，
+ * 补这一层才有「浮在内容上」的感觉。深色主题黑压黑没意义，交给填充和描边。
+ */
+private fun DrawScope.drawSoftShadow(light: Boolean) {
+    if (!light) return
+    val radius = size.height / 2f
+    // 从最大的画到最小的，小的叠上去，越靠近壳体越浓
+    for (i in 5 downTo 1) {
+        val grow = i * 1.5.dp.toPx()
+        val drop = i * 1.25.dp.toPx()
+        drawRoundRect(
+            color = Color.Black.copy(alpha = 0.022f),
+            topLeft = Offset(-grow, -grow * 0.3f + drop),
+            size = Size(size.width + grow * 2, size.height + grow * 2),
+            cornerRadius = CornerRadius(radius + grow),
+        )
+    }
+}
+
 @Composable
 private fun PotBottomBar(
     selected: String,
@@ -742,6 +770,12 @@ private fun PotBottomBar(
         animationSpec = tween(durationMillis = if (showAdd) 160 else 90),
         label = "addAlpha",
     )
+    // 胶囊要比页面底色明显亮一档才浮得起来。浅色下是纯白→panel（#FFFDF9），
+    // 深色下是 panel2→panel，都比 canvas 高一档；之前拿 panel2 收尾，
+    // 而 panel2 几乎等于 canvas，下半截就融进背景了。
+    val light = colors.canvas.luminance() > 0.5f
+    val barTop = if (light) Color.White else colors.panel2
+    val barBottom = if (light) colors.panel else colors.panel
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -753,18 +787,24 @@ private fun PotBottomBar(
             modifier = Modifier
                 .weight(1f)
                 .height(PotBarHeight)
-                // 投影画在形状外面（clip = false），壳体本身不描边，靠阴影跟页面分层
+                // 系统 elevation 在浅色底上偏淡，垫一层手绘的柔和投影把边缘拉开
+                .drawBehind { drawSoftShadow(light) }
                 .shadow(
-                    elevation = 14.dp,
+                    elevation = 18.dp,
                     shape = PotBarShape,
                     clip = false,
-                    ambientColor = Color.Black.copy(alpha = 0.10f),
-                    spotColor = Color.Black.copy(alpha = 0.18f),
+                    ambientColor = Color.Black.copy(alpha = if (light) 0.14f else 0.30f),
+                    spotColor = Color.Black.copy(alpha = if (light) 0.26f else 0.50f),
                 )
-                // 上浅下深的一点点过渡，避免一整块死白压在纸色上像另一张卡片
                 .background(
-                    Brush.verticalGradient(listOf(colors.panel, colors.panel2)),
+                    Brush.verticalGradient(listOf(barTop, barBottom)),
                     PotBarShape,
+                )
+                // 极淡的一圈边界，光靠阴影在低对比的纸上容易糊成一片
+                .border(
+                    width = 1.dp,
+                    color = if (light) colors.line.copy(alpha = 0.85f) else colors.lineStrong,
+                    shape = PotBarShape,
                 )
                 .padding(PotBarInset),
         ) {
@@ -802,11 +842,11 @@ private fun PotBottomBar(
                             scaleY = addScale
                         }
                         .shadow(
-                            elevation = 10.dp,
+                            elevation = 14.dp,
                             shape = CircleShape,
                             clip = false,
-                            ambientColor = colors.brand.copy(alpha = 0.20f),
-                            spotColor = colors.brand.copy(alpha = 0.35f),
+                            ambientColor = colors.brand.copy(alpha = 0.28f),
+                            spotColor = colors.brand.copy(alpha = 0.45f),
                         )
                         .background(colors.brand, CircleShape)
                         .clickable(onClick = onAdd),
