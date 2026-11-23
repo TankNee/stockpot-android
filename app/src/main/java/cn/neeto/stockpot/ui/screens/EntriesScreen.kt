@@ -66,9 +66,11 @@ import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.ui.components.Chip
 import cn.neeto.stockpot.ui.components.DayHeader
+import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.EmptyState
 import cn.neeto.stockpot.ui.components.EntryRow
 import cn.neeto.stockpot.ui.components.MonthStepper
+import cn.neeto.stockpot.ui.components.rememberHaptics
 import cn.neeto.stockpot.ui.components.SheetActions
 import cn.neeto.stockpot.ui.components.SheetField
 import cn.neeto.stockpot.ui.components.SheetGrabber
@@ -116,6 +118,9 @@ fun EntriesScreen(
             .sumOf { it.effectiveAmount }
     }
     val grouped = remember(entries) { entries.groupBy { it.date } }
+    // 按金额排的时候不能按日期分块：分块会把「今天的小额」整批压到「昨天的大额」后面，
+    // 全局顺序就废了。这时平铺，右侧的日期顶替时间，一眼知道是哪天。
+    val byAmount = filter.sort == EntryFilter.AMOUNT_DESC || filter.sort == EntryFilter.AMOUNT_ASC
 
     Column(Modifier.fillMaxWidth()) {
         MonthStepper(
@@ -183,20 +188,33 @@ fun EntriesScreen(
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(bottom = 108.dp),
         ) {
-            grouped.forEach { (date, dayEntries) ->
-                val expense = dayEntries.filter { it.kind == Kind.EXPENSE && it.countsTowardTotals }
-                    .sumOf { it.effectiveAmount }
-                val income = dayEntries.filter { it.kind == Kind.INCOME && it.countsTowardTotals }
-                    .sumOf { it.amount }
-                item(key = "day-$date") {
-                    DayHeader(date = date, expense = expense, income = income)
-                }
-                items(dayEntries, key = { it.id }, contentType = { "entry" }) { entry ->
+            if (byAmount) {
+                items(entries, key = { it.id }, contentType = { "entry" }) { entry ->
                     Box(Modifier.background(colors.panel)) {
-                        EntryRow(entry = entry, onClick = { onOpenEntry(entry) })
+                        EntryRow(
+                            entry = entry,
+                            showDate = true,
+                            onClick = { onOpenEntry(entry) },
+                        )
                     }
                 }
-                item(key = "gap-$date") { Spacer(Modifier.height(6.dp)) }
+                item(key = "tail") { Spacer(Modifier.height(6.dp)) }
+            } else {
+                grouped.forEach { (date, dayEntries) ->
+                    val expense = dayEntries.filter { it.kind == Kind.EXPENSE && it.countsTowardTotals }
+                        .sumOf { it.effectiveAmount }
+                    val income = dayEntries.filter { it.kind == Kind.INCOME && it.countsTowardTotals }
+                        .sumOf { it.amount }
+                    item(key = "day-$date") {
+                        DayHeader(date = date, expense = expense, income = income)
+                    }
+                    items(dayEntries, key = { it.id }, contentType = { "entry" }) { entry ->
+                        Box(Modifier.background(colors.panel)) {
+                            EntryRow(entry = entry, onClick = { onOpenEntry(entry) })
+                        }
+                    }
+                    item(key = "gap-$date") { Spacer(Modifier.height(6.dp)) }
+                }
             }
         }
     }
@@ -225,11 +243,15 @@ fun EntriesScreen(
 private fun FilterButton(count: Int, onClick: () -> Unit) {
     val colors = LocalPotColors.current
     val active = count > 0
+    val haptics = rememberHaptics()
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(11.dp))
             .background(if (active) colors.brandTint else colors.panel)
-            .clickable { onClick() }
+            .clickable {
+                haptics(Haptic.Tap)
+                onClick()
+            }
             .padding(horizontal = 11.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -298,11 +320,15 @@ private fun ActiveFilters(
 @Composable
 private fun ActiveChip(label: String, onClear: () -> Unit) {
     val colors = LocalPotColors.current
+    val haptics = rememberHaptics()
     Row(
         modifier = Modifier
             .clip(CircleShape)
             .background(colors.brandTint)
-            .clickable { onClear() }
+            .clickable {
+                haptics(Haptic.Tap)
+                onClear()
+            }
             .padding(start = 11.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

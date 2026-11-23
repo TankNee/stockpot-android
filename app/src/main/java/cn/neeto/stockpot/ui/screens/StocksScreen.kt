@@ -70,7 +70,9 @@ import cn.neeto.stockpot.ui.components.PotSheet
 import cn.neeto.stockpot.ui.components.SectionTitle
 import cn.neeto.stockpot.ui.components.Segmented
 import cn.neeto.stockpot.ui.components.SheetActions
+import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.SheetField
+import cn.neeto.stockpot.ui.components.rememberHaptics
 import cn.neeto.stockpot.ui.components.Sparkline
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
@@ -387,6 +389,7 @@ fun StockAccountScreen(
     onLoadDaily: () -> Unit,
 ) {
     val colors = LocalPotColors.current
+    val haptics = rememberHaptics()
     val account = ledger.stockAccounts.firstOrNull { it.id == accountId }
     var editingStockId by remember { mutableStateOf<String?>(null) }
     var adding by remember { mutableStateOf(false) }
@@ -515,7 +518,11 @@ fun StockAccountScreen(
                             .background(colors.panel)
                             .combinedClickable(
                                 onClick = { onOpenStock(line.stock.id) },
-                                onLongClick = { editingStockId = line.stock.id },
+                                onLongClick = {
+                                    // 长按是「进编辑」这种不常见又容易误触的操作，给一下沉的
+                                    haptics(Haptic.Confirm)
+                                    editingStockId = line.stock.id
+                                },
                             )
                             .padding(start = 14.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,

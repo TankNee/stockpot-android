@@ -55,11 +55,13 @@ import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.ui.components.Hairline
+import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.PotCard
 import cn.neeto.stockpot.ui.components.PotConfirmSheet
 import cn.neeto.stockpot.ui.components.PotSheet
 import cn.neeto.stockpot.ui.components.SheetActions
 import cn.neeto.stockpot.ui.components.SheetField
+import cn.neeto.stockpot.ui.components.rememberHaptics
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 
 /** 内置类型：顺序决定分组与选择页的顺序，`credit` 单独当负债看。 */
@@ -664,6 +666,7 @@ private fun SwitchRow(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     val colors = LocalPotColors.current
+    val haptics = rememberHaptics()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -680,7 +683,10 @@ private fun SwitchRow(
         Spacer(Modifier.width(10.dp))
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = {
+                haptics(Haptic.Tap)
+                onCheckedChange(it)
+            },
             colors = SwitchDefaults.colors(
                 checkedThumbColor = colors.onBrand,
                 checkedTrackColor = colors.brand,

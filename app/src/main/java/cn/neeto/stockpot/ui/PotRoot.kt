@@ -81,6 +81,8 @@ import cn.neeto.stockpot.core.data.StockMath
 import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.core.util.Documents
+import cn.neeto.stockpot.ui.components.Haptic
+import cn.neeto.stockpot.ui.components.rememberHaptics
 import cn.neeto.stockpot.ui.screens.AssetsScreen
 import cn.neeto.stockpot.ui.screens.EntriesScreen
 import cn.neeto.stockpot.ui.screens.EntryEditorSheet
@@ -748,6 +750,7 @@ private fun PotBottomBar(
     // 只靠底色差 + 一圈描边分层：panel 比 canvas 亮一点点，够了。
     // 之前叠投影反而在纸色背景上糊出一圈脏边，看着很不自然。
     val light = colors.canvas.luminance() > 0.5f
+    val haptics = rememberHaptics()
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -801,7 +804,10 @@ private fun PotBottomBar(
                             scaleY = addScale
                         }
                         .background(colors.brand, CircleShape)
-                        .clickable(onClick = onAdd),
+                        .clickable {
+                            haptics(Haptic.Tap)
+                            onAdd()
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -825,12 +831,17 @@ private fun RowScope.TabCell(item: PotTab, active: Boolean, onClick: () -> Unit)
         animationSpec = tween(200),
         label = "tabTone",
     )
+    val haptics = rememberHaptics()
     Column(
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
             .clip(PotBarShape)
-            .clickable { onClick() },
+            .clickable {
+                // 点当前 tab 不震，只有真的换了页才给一下
+                if (!active) haptics(Haptic.Tap)
+                onClick()
+            },
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

@@ -50,12 +50,14 @@ import cn.neeto.stockpot.ui.components.Donut
 import cn.neeto.stockpot.ui.components.EmptyState
 import cn.neeto.stockpot.ui.components.EntryRow
 import cn.neeto.stockpot.ui.components.Hairline
+import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.MonthCalendar
 import cn.neeto.stockpot.ui.components.MonthStepper
 import cn.neeto.stockpot.ui.components.PotCard
 import cn.neeto.stockpot.ui.components.SectionTitle
 import cn.neeto.stockpot.ui.components.Segmented
 import cn.neeto.stockpot.ui.components.Sparkline
+import cn.neeto.stockpot.ui.components.rememberHaptics
 import cn.neeto.stockpot.ui.components.YearBars
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
@@ -705,11 +707,15 @@ private fun YearStat(label: String, value: String, hint: String?) {
 @Composable
 fun PrimaryButton(text: String, onClick: () -> Unit) {
     val colors = LocalPotColors.current
+    val haptics = rememberHaptics()
     Box(
         Modifier
             .clip(RoundedCornerShape(12.dp))
             .background(colors.brand)
-            .clickable { onClick() }
+            .clickable {
+                haptics(Haptic.Confirm)
+                onClick()
+            }
             .padding(horizontal = 20.dp, vertical = 13.dp),
     ) {
         Text(text, color = colors.onBrand, fontSize = 15.sp, fontWeight = FontWeight.Medium)
@@ -719,11 +725,15 @@ fun PrimaryButton(text: String, onClick: () -> Unit) {
 @Composable
 fun GhostButton(text: String, onClick: () -> Unit) {
     val colors = LocalPotColors.current
+    val haptics = rememberHaptics()
     Box(
         Modifier
             .clip(RoundedCornerShape(12.dp))
             .background(colors.panel)
-            .clickable { onClick() }
+            .clickable {
+                haptics(Haptic.Tap)
+                onClick()
+            }
             .padding(horizontal = 20.dp, vertical = 13.dp),
     ) {
         Text(text, color = colors.ink2, fontSize = 15.sp)

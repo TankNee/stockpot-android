@@ -124,6 +124,7 @@ fun Segmented(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalPotColors.current
+    val haptics = rememberHaptics()
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
@@ -138,7 +139,11 @@ fun Segmented(
                     .weight(1f)
                     .clip(RoundedCornerShape(9.dp))
                     .background(if (active) colors.panel else Color.Transparent)
-                    .clickable { onSelect(value) }
+                    .clickable {
+                        // 已经选中的那格不再震，免得点了个寂寞
+                        if (!active) haptics(Haptic.Tap)
+                        onSelect(value)
+                    }
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -163,8 +168,15 @@ fun Chip(
     dotColor: Color? = null,
 ) {
     val colors = LocalPotColors.current
+    val haptics = rememberHaptics()
+    // 用 Surface 的 onClick 重载，不要在外面套 Modifier.clickable：
+    // 那样水波纹按矩形边界画，圆角胶囊上会露出一块方的点击底色。
     Surface(
-        modifier = modifier.clickable { onClick() },
+        onClick = {
+            haptics(Haptic.Tap)
+            onClick()
+        },
+        modifier = modifier,
         shape = CircleShape,
         color = if (active) colors.brandTint else colors.panel,
         border = BorderStroke(1.dp, if (active) Color.Transparent else colors.line),
@@ -430,6 +442,7 @@ fun SheetActions(
     danger: Boolean = false,
 ) {
     val colors = LocalPotColors.current
+    val haptics = rememberHaptics()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -441,7 +454,10 @@ fun SheetActions(
                 .weight(1f)
                 .clip(RoundedCornerShape(14.dp))
                 .background(colors.panel2)
-                .clickable { onCancel() }
+                .clickable {
+                    haptics(Haptic.Tap)
+                    onCancel()
+                }
                 .padding(vertical = 14.dp),
             contentAlignment = Alignment.Center,
         ) {
@@ -458,7 +474,10 @@ fun SheetActions(
                         else -> colors.brand
                     },
                 )
-                .clickable(enabled = enabled) { onConfirm() }
+                .clickable(enabled = enabled) {
+                    haptics(Haptic.Confirm)
+                    onConfirm()
+                }
                 .padding(vertical = 14.dp),
             contentAlignment = Alignment.Center,
         ) {
