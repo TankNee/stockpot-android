@@ -59,6 +59,13 @@ data class Entry(
     /** 已退回的金额（分），实际成本 = amount - refundedAmount */
     val refundedAmount: Long = 0,
     val refundedAt: String = "",
+    /**
+     * 退款配对：支出行存退款行的 id，退款行存原支出的 id，两边互相指认。
+     * 只存单条（桌面端的 refundedAmount 也只记总额和最新日期），
+     * 有了它点一下就能跳到对面那条，不用再按金额日期去猜。
+     * 桌面端读到这个未知字段会忽略，导出回去也不影响它的账。
+     */
+    val refundLinkId: String = "",
     /** 人工确认过的分类，自动重排不会覆盖 */
     val categoryLocked: Boolean = false,
     val projectId: String = "",
@@ -324,8 +331,17 @@ fun Ledger.normalized(): Ledger {
     }
     // 去重（同名同父只留一个），保持原顺序
     val deduped = withIcons.distinctBy { it.parent + "\u0000" + it.name }
+    val kept = entries.filter { it.id.isNotEmpty() }
+    val ids = kept.map { it.id }.toHashSet()
     return copy(
-        entries = entries.filter { it.id.isNotEmpty() },
+        // 合并、删除之后可能留下指向不存在条目的退款配对，载入时一次性松开
+        entries = kept.map { entry ->
+            if (entry.refundLinkId.isNotEmpty() && entry.refundLinkId !in ids) {
+                entry.copy(refundLinkId = "")
+            } else {
+                entry
+            }
+        },
         categories = deduped,
         rules = if (rules.isEmpty()) defaultRules() else rules.filter { it.pattern.isNotEmpty() },
         wallets = wallets.map { if (it.kind == "credit" && it.balance > 0) it.copy(balance = -it.balance) else it },

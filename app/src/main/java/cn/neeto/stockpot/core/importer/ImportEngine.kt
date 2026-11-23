@@ -222,6 +222,24 @@ object ImportEngine {
         val all = (ledger.entries + newEntries).toMutableList()
         for (refund in pendingRefunds) {
             val target = findRefundTarget(all, bill.source, refund)
+            // 退款行本身保留下来（不计入合计），和原消费互相指认：
+            // 在流水里点退款能跳回那笔消费，点消费也能跳到退款那一条。
+            val refundEntry = Entry(
+                id = LedgerOps.newEntryId(),
+                date = refund.date,
+                time = refund.time,
+                kind = if (refund.kind == Kind.EXPENSE) Kind.INCOME else refund.kind,
+                amount = refund.amount,
+                category = "退款",
+                account = refund.account,
+                counterparty = refund.counterparty,
+                note = refund.note,
+                source = bill.source,
+                externalId = refund.externalId,
+                excluded = true,
+                refundLinkId = target?.id.orEmpty(),
+                createdAt = Fmt.stamp(),
+            )
             if (target != null) {
                 val index = all.indexOfFirst { it.id == target.id }
                 if (index >= 0) {
@@ -229,28 +247,14 @@ object ImportEngine {
                     all[index] = entry.copy(
                         refundedAmount = minOf(entry.amount, entry.refundedAmount + refund.amount),
                         refundedAt = refund.date,
+                        refundLinkId = refundEntry.id,
                     )
                     refundsLinked++
                 }
-            } else {
-                // 找不到原始消费：保留这条资金流动，但不计入收支
-                all += Entry(
-                    id = LedgerOps.newEntryId(),
-                    date = refund.date,
-                    time = refund.time,
-                    kind = Kind.TRANSFER,
-                    amount = refund.amount,
-                    category = refund.category,
-                    account = refund.account,
-                    counterparty = refund.counterparty,
-                    note = refund.note,
-                    source = bill.source,
-                    externalId = refund.externalId,
-                    excluded = true,
-                    createdAt = Fmt.stamp(),
-                )
-                added++
             }
+            // 找不到原始消费的也留下来，只是还没配对，详情里可以手动关联
+            all += refundEntry
+            added++
         }
 
         next = next.copy(

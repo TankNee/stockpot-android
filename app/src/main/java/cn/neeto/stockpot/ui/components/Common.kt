@@ -41,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -240,6 +241,8 @@ fun Amount(
     modifier: Modifier = Modifier,
     signed: Boolean = true,
     fontSize: Int = 16,
+    /** 全额退款的原单：划掉，一眼看出这笔钱回来了 */
+    strikethrough: Boolean = false,
 ) {
     val colors = LocalPotColors.current
     val color = when (kind) {
@@ -257,6 +260,7 @@ fun Amount(
         modifier = modifier,
         color = color,
         style = MoneyStyle.copy(fontSize = fontSize.sp),
+        textDecoration = if (strikethrough) TextDecoration.LineThrough else null,
         maxLines = 1,
     )
 }
@@ -339,6 +343,8 @@ fun SheetHeader(
     onClose: (() -> Unit)? = null,
     /** 右上角的动作，比如「保存」。排在最右边，关闭按钮在它后面。 */
     trailing: (@Composable () -> Unit)? = null,
+    /** 标题左边的返回。从一条账目跳到它关联的那条时，用它退回上一条。 */
+    leading: (@Composable () -> Unit)? = null,
 ) {
     val colors = LocalPotColors.current
     Row(
@@ -347,6 +353,10 @@ fun SheetHeader(
             .padding(bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (leading != null) {
+            leading()
+            Spacer(Modifier.width(4.dp))
+        }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleLarge, color = colors.ink)
             if (subtitle != null) {

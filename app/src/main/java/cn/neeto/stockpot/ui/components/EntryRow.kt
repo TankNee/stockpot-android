@@ -39,11 +39,17 @@ fun EntryRow(
     val title = entry.counterparty.ifEmpty {
         entry.note.ifEmpty { entry.category.ifEmpty { "未命名" } }
     }
+    // 全额退款：原金额划掉，别让人以为这月真的花了这么多
+    val fullyRefunded = entry.kind == Kind.EXPENSE && entry.refundedAmount > 0 &&
+        entry.refundedAmount >= entry.amount
     val subtitle = buildList {
         if (entry.category.isNotEmpty()) add(entry.category.replace("/", " · "))
         if (entry.account.isNotEmpty()) add(entry.account)
         if (projectName != null) add(projectName)
-        if (entry.refundedAmount > 0) add("已退 ${Fmt.yuan(entry.refundedAmount)}")
+        if (fullyRefunded) add("已全额退款")
+        else if (entry.refundedAmount > 0) add("已退 ${Fmt.yuan(entry.refundedAmount)}")
+        // 退款行配上原消费后标一下：列表里一眼能看出这条点进去有得跳
+        if (entry.kind != Kind.EXPENSE && entry.refundLinkId.isNotEmpty()) add("已关联")
         if (entry.excluded) add("不计收支")
     }.joinToString("  ·  ")
 
@@ -89,7 +95,12 @@ fun EntryRow(
         }
         Spacer(Modifier.width(10.dp))
         Column(horizontalAlignment = Alignment.End) {
-            Amount(entry.effectiveAmount, entry.kind, fontSize = 15)
+            Amount(
+                cents = if (fullyRefunded) entry.amount else entry.effectiveAmount,
+                kind = entry.kind,
+                fontSize = 15,
+                strikethrough = fullyRefunded,
+            )
             val meta = when {
                 showDate -> Fmt.shortDate(entry.date)
                 entry.time.isNotEmpty() -> entry.time

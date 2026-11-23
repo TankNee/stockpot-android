@@ -75,8 +75,35 @@ object LedgerOps {
         )
     }
 
-    fun deleteEntry(ledger: Ledger, id: String): Ledger =
-        ledger.copy(entries = ledger.entries.filterNot { it.id == id })
+    fun deleteEntry(ledger: Ledger, id: String): Ledger {
+        val removed = ledger.entries.firstOrNull { it.id == id } ?: return ledger
+        val partner = ledger.entries.firstOrNull { it.id == removed.refundLinkId }
+        val rest = ledger.entries.filterNot { it.id == id }
+        if (partner == null) return ledger.copy(entries = rest)
+        // 删的是退款行：原消费把这一笔退回来的钱吐回去，否则这笔账就凭空少了一块
+        if (removed.kind != Kind.EXPENSE && partner.kind == Kind.EXPENSE) {
+            val refunded = (partner.refundedAmount - removed.amount).coerceAtLeast(0)
+            return ledger.copy(
+                entries = rest.map { entry ->
+                    if (entry.id == partner.id) {
+                        entry.copy(
+                            refundedAmount = refunded,
+                            refundedAt = if (refunded == 0L) "" else entry.refundedAt,
+                            refundLinkId = "",
+                        )
+                    } else {
+                        entry
+                    }
+                },
+            )
+        }
+        // 删的是原消费：退款行留着当一条独立记录，只是不再指着已经没了的行
+        return ledger.copy(
+            entries = rest.map { entry ->
+                if (entry.id == partner.id) entry.copy(refundLinkId = "") else entry
+            },
+        )
+    }
 
     /**
      * 批量把标题和备注对调。只碰这两个字段，所以不需要重排、也不会影响合计；
@@ -95,6 +122,127 @@ object LedgerOps {
         compareByDescending<Entry> { it.date }
             .thenByDescending { it.time }
             .thenByDescending { it.createdAt }
+
+    /* ------------------------------ 退款配对 ------------------------------ */
+
+    /**
+     * 把一条支出和一条退款绑起来。
+     *
+     * 两边的 `refundLinkId` 互相指认，支出那边同时把退款金额记进
+     * `refundedAmount`（历史数据里已经折进去的部分不回退，取两者较大值），
+     * 退款行标成不计入合计——钱只算一次，但两条都能点开看对面。
+     *
+     * 任一边原来挂着别的，先松开旧的，避免一条记录指着两个人。
+     */
+    fun linkRefund(ledger: Ledger, expenseId: String, refundId: String): Ledger {
+        if (expenseId == refundId) return ledger
+        val expense = ledger.entries.firstOrNull { it.id == expenseId } ?: return ledger
+        val refund = ledger.entries.firstOrNull { it.id == refundId } ?: return ledger
+        if (expense.kind != Kind.EXPENSE || refund.kind == Kind.EXPENSE) return ledger
+
+        val oldRefund = ledger.entries.firstOrNull { it.id == expense.refundLinkId && it.id != refund.id }
+        val oldExpenseId = refund.refundLinkId
+        // 旧的那笔先从支出的已退总额里扣回来，再叠上新的这一笔
+        val base = if (oldRefund == null) {
+            expense.refundedAmount
+        } else {
+            (expense.refundedAmount - oldRefund.amount).coerceAtLeast(0)
+        }
+        val refunded = minOf(expense.amount, base + refund.amount).coerceAtLeast(0)
+
+        val entries = ledger.entries.map { entry ->
+            when (entry.id) {
+                oldRefund?.id -> entry.copy(refundLinkId = "", excluded = false)
+                oldExpenseId.takeIf { it.isNotEmpty() && it != expenseId } -> entry.copy(refundLinkId = "")
+                expenseId -> entry.copy(
+                    refundedAmount = refunded,
+                    refundedAt = refund.date.ifEmpty { expense.refundedAt },
+                    refundLinkId = refundId,
+                )
+                refundId -> entry.copy(refundLinkId = expenseId, excluded = true)
+                else -> entry
+            }
+        }
+        return ledger.copy(entries = entries.sortedWith(entryOrder))
+    }
+
+    /**
+     * 松开一对退款关联：支出把这一笔的金额还回去，退款行重新当普通记录计入，
+     * 净额前后一致（关联时钱退了一次，解除后又作为独立收入算了一次）。
+     */
+    fun unlinkRefund(ledger: Ledger, id: String): Ledger {
+        val entry = ledger.entries.firstOrNull { it.id == id } ?: return ledger
+        val partner = ledger.entries.firstOrNull { it.id == entry.refundLinkId }
+        if (partner == null) {
+            return ledger.copy(
+                entries = ledger.entries.map { if (it.id == id) it.copy(refundLinkId = "") else it },
+            )
+        }
+        val expense = if (entry.kind == Kind.EXPENSE) entry else partner
+        val refund = if (expense.id == entry.id) partner else entry
+        if (expense.kind != Kind.EXPENSE || refund.kind == Kind.EXPENSE) {
+            return ledger.copy(
+                entries = ledger.entries.map {
+                    if (it.id == entry.id || it.id == partner.id) it.copy(refundLinkId = "") else it
+                },
+            )
+        }
+        val refunded = (expense.refundedAmount - refund.amount).coerceAtLeast(0)
+        val entries = ledger.entries.map { row ->
+            when (row.id) {
+                expense.id -> row.copy(
+                    refundedAmount = refunded,
+                    refundedAt = if (refunded == 0L) "" else row.refundedAt,
+                    refundLinkId = "",
+                )
+                refund.id -> row.copy(refundLinkId = "", excluded = false)
+                else -> row
+            }
+        }
+        return ledger.copy(entries = entries.sortedWith(entryOrder))
+    }
+
+    /**
+     * 手动配对时的候选：支出找退款行，退款行找支出。
+     *
+     * 已经配了别人的不出现（先解开再点），金额对不上也排除；剩下的按
+     * 「金额一样 → 日期近」排，最可能是它。日期只用来排序，不做硬过滤——
+     * 跨月退款很常见。
+     */
+    fun refundCandidates(ledger: Ledger, entry: Entry, limit: Int = 24): List<Entry> {
+        val pool = ledger.entries.filter { it.id != entry.id && !it.archived }
+        val target = entry.kind == Kind.EXPENSE
+        return pool.asSequence()
+            .filter { candidate ->
+                if (target) {
+                    candidate.kind != Kind.EXPENSE && candidate.refundLinkId.isEmpty()
+                } else {
+                    candidate.kind == Kind.EXPENSE && candidate.refundLinkId.isEmpty() &&
+                        candidate.amount - candidate.refundedAmount >= entry.amount
+                }
+            }
+            .filter { candidate ->
+                if (target) {
+                    // 退款不能比这笔消费还大（部分退款的余量够就行）
+                    candidate.amount <= entry.amount - entry.refundedAmount
+                } else {
+                    true
+                }
+            }
+            .sortedWith(
+                compareByDescending<Entry> { if (it.amount == entry.amount) 1 else 0 }
+                    .thenBy { distance(it.date, entry.date) },
+            )
+            .take(limit)
+            .toList()
+    }
+
+    /** 两个 `YYYY-MM-DD` 差多少天；解析不了就排到最后。 */
+    private fun distance(a: String, b: String): Long = runCatching {
+        kotlin.math.abs(
+            java.time.temporal.ChronoUnit.DAYS.between(LocalDate.parse(a), LocalDate.parse(b)),
+        )
+    }.getOrDefault(Long.MAX_VALUE / 2)
 
     private fun addAccount(accounts: List<String>, account: String): List<String> {
         val name = account.trim()

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
@@ -25,6 +26,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -33,6 +35,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -59,11 +62,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.neeto.stockpot.core.data.EntryInput
 import cn.neeto.stockpot.core.data.Fmt
+import cn.neeto.stockpot.core.data.LedgerOps
 import cn.neeto.stockpot.core.model.CategoryDef
 import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
+import cn.neeto.stockpot.ui.components.Amount
 import cn.neeto.stockpot.ui.components.Chip
+import cn.neeto.stockpot.ui.components.EntryRow
 import cn.neeto.stockpot.ui.components.Hairline
 import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.Segmented
@@ -87,21 +93,38 @@ fun EntryEditorSheet(
     onUpdate: (Entry) -> Unit,
     onDelete: (Entry) -> Unit,
     onAddCategory: ((String) -> Unit)? = null,
+    /** 点退款关联跳到对面那条（支出 ⇄ 退款）。 */
+    onOpenEntry: ((Entry) -> Unit)? = null,
+    onLinkRefund: ((String, String) -> Unit)? = null,
+    onUnlinkRefund: ((String) -> Unit)? = null,
+    /** 从关联跳过来之后，左上角退回上一条。 */
+    onBack: (() -> Unit)? = null,
 ) {
     val colors = LocalPotColors.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    var kind by remember { mutableStateOf(existing?.kind ?: Kind.EXPENSE) }
-    var amountText by remember { mutableStateOf(existing?.let { Fmt.editYuan(it.amount) } ?: "") }
-    var date by remember { mutableStateOf(existing?.date ?: initialDate) }
-    var category by remember { mutableStateOf(existing?.category ?: "") }
-    var account by remember { mutableStateOf(existing?.account ?: "") }
-    var counterparty by remember { mutableStateOf(existing?.counterparty ?: "") }
-    var note by remember { mutableStateOf(existing?.note ?: "") }
-    var projectId by remember { mutableStateOf(existing?.projectId ?: "") }
+    var kind by remember(existing?.id) { mutableStateOf(existing?.kind ?: Kind.EXPENSE) }
+    var amountText by remember(existing?.id) { mutableStateOf(existing?.let { Fmt.editYuan(it.amount) } ?: "") }
+    var date by remember(existing?.id) { mutableStateOf(existing?.date ?: initialDate) }
+    var category by remember(existing?.id) { mutableStateOf(existing?.category ?: "") }
+    var account by remember(existing?.id) { mutableStateOf(existing?.account ?: "") }
+    var counterparty by remember(existing?.id) { mutableStateOf(existing?.counterparty ?: "") }
+    var note by remember(existing?.id) { mutableStateOf(existing?.note ?: "") }
+    var projectId by remember(existing?.id) { mutableStateOf(existing?.projectId ?: "") }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showAccountPicker by remember { mutableStateOf(false) }
+    var showRefundPicker by remember { mutableStateOf(false) }
+
+    // 对面那条实时取：刚关联完 ledger 就变了，卡片要立刻显示成已关联
+    val linkedEntry = remember(existing?.id, existing?.refundLinkId, ledger.entries) {
+        val id = existing?.refundLinkId.orEmpty()
+        if (existing == null || id.isEmpty()) null else ledger.entries.firstOrNull { it.id == id }
+    }
+    // 退款行：已经配上的、分类写着退款的，以及老版本导入留下的「不计收支」行。
+    // 最后一种没有 link，正好给它一个补配的入口。
+    val isRefundRow = existing != null && existing.kind != Kind.EXPENSE &&
+        (existing.refundLinkId.isNotEmpty() || existing.category.startsWith("退款") || existing.excluded)
 
     // 账户候选：资产页里勾了「记账时可被选择」的账户优先，再补上历史导入留下的账户名
     val accountCandidates = remember(ledger.wallets, ledger.accounts) {
@@ -171,6 +194,20 @@ fun EntryEditorSheet(
                     subtitle = whenLabel,
                     onClose = onDismiss,
                     trailing = { SaveChip(enabled = canSave) { submit() } },
+                    leading = if (onBack == null) {
+                        null
+                    } else {
+                        {
+                            IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) {
+                                Icon(
+                                    Icons.AutoMirrored.Outlined.ArrowBack,
+                                    contentDescription = "返回上一条",
+                                    tint = colors.ink3,
+                                    modifier = Modifier.size(19.dp),
+                                )
+                            }
+                        }
+                    },
                 )
             }
             Column(
@@ -323,7 +360,24 @@ fun EntryEditorSheet(
             }
 
             if (existing != null) {
-                Spacer(Modifier.height(22.dp))
+                // 退款配对：支出看「退回来的那笔」，退款行看「原来是哪笔消费」
+                if (existing.refundedAmount > 0 || isRefundRow) {
+                    Spacer(Modifier.height(22.dp))
+                    RefundLinkCard(
+                        entry = existing,
+                        linked = linkedEntry,
+                        isRefundRow = isRefundRow,
+                        onOpen = { linkedEntry?.let { onOpenEntry?.invoke(it) } },
+                        onLink = { showRefundPicker = true },
+                        onUnlink = if (linkedEntry != null && onUnlinkRefund != null) {
+                            { onUnlinkRefund.invoke(existing.id) }
+                        } else {
+                            null
+                        },
+                        linkEnabled = onLinkRefund != null,
+                    )
+                }
+                Spacer(Modifier.height(18.dp))
                 MetaCard(existing)
                 Spacer(Modifier.height(14.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -370,6 +424,20 @@ fun EntryEditorSheet(
             onPick = {
                 account = it
                 showAccountPicker = false
+            },
+        )
+    }
+
+    if (showRefundPicker && existing != null) {
+        RefundPickerSheet(
+            entry = existing,
+            candidates = LedgerOps.refundCandidates(ledger, existing),
+            onDismiss = { showRefundPicker = false },
+            onPick = { other ->
+                showRefundPicker = false
+                val expenseId = if (existing.kind == Kind.EXPENSE) existing.id else other.id
+                val refundId = if (existing.kind == Kind.EXPENSE) other.id else existing.id
+                onLinkRefund?.invoke(expenseId, refundId)
             },
         )
     }
@@ -425,6 +493,197 @@ private fun SaveChip(enabled: Boolean, onClick: () -> Unit) {
 }
 
 /**
+ * 「这笔钱退回来了」/「这笔钱退的是哪一单」。
+ *
+ * 支出行看的是它对应的那条退款：标题、日期、金额都在，点一下跳到退款那条；
+ * 还没配上的给一个入口，从候选里挑。退款行反过来指向原消费。
+ * 关联错了能当场解开，不用去翻列表。
+ */
+@Composable
+private fun RefundLinkCard(
+    entry: Entry,
+    linked: Entry?,
+    isRefundRow: Boolean,
+    onOpen: () -> Unit,
+    onLink: () -> Unit,
+    onUnlink: (() -> Unit)?,
+    linkEnabled: Boolean,
+) {
+    val colors = LocalPotColors.current
+    FieldLabel("退款关联")
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.panel2),
+    ) {
+        if (linked != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpen() }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = if (isRefundRow) "退款自" else "退款记录",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.ink3,
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        text = entryTitle(linked),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = Fmt.dayLabel(linked.date) + if (linked.time.isBlank()) "" else " · ${linked.time}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.ink3,
+                        maxLines = 1,
+                    )
+                    // 分几次退的时候，卡片上这条是「最近一笔」，总额另说一句
+                    if (!isRefundRow && entry.refundedAmount > linked.amount) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = "累计已退 ${Fmt.yuan(entry.refundedAmount)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.ink3,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+                Amount(linked.amount, linked.kind, fontSize = 15)
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    Icons.Outlined.ChevronRight,
+                    contentDescription = null,
+                    tint = colors.ink3,
+                    modifier = Modifier.size(17.dp),
+                )
+            }
+            if (onUnlink != null) {
+                Hairline()
+                TextButton(
+                    onClick = onUnlink,
+                    modifier = Modifier.padding(start = 6.dp),
+                ) {
+                    Text("解除关联", fontSize = 13.sp, color = colors.ink3)
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = linkEnabled) { onLink() }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = if (isRefundRow) {
+                            "这笔记账还没和对应那条配对"
+                        } else {
+                            val at = if (entry.refundedAt.isBlank()) "" else " · 退款于 ${Fmt.shortDate(entry.refundedAt)}"
+                            "已退 ${Fmt.yuan(entry.refundedAmount)}$at"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.ink,
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        text = if (isRefundRow) {
+                            "挑出它对应的是哪一条，两条就能互相跳"
+                        } else {
+                            "还没对上具体是哪一笔，挑一条退款记录来配对"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.ink3,
+                        maxLines = 2,
+                    )
+                }
+                if (linkEnabled) {
+                    Spacer(Modifier.width(10.dp))
+                    Text("去关联", fontSize = 13.sp, color = colors.brand)
+                }
+            }
+        }
+    }
+}
+
+/** 一条账目的显示名，和列表行用的是同一套回退顺序。 */
+private fun entryTitle(entry: Entry): String = entry.counterparty.ifEmpty {
+    entry.note.ifEmpty { entry.category.ifEmpty { "未命名" } }
+}
+
+/** 手动配对的候选弹层：支出挑退款，退款挑支出。 */
+@Composable
+private fun RefundPickerSheet(
+    entry: Entry,
+    candidates: List<Entry>,
+    onDismiss: () -> Unit,
+    onPick: (Entry) -> Unit,
+) {
+    val colors = LocalPotColors.current
+    val isExpense = entry.kind == Kind.EXPENSE
+    PotSheet(onDismiss = onDismiss) {
+        Text(
+            text = if (isExpense) "挑一笔退款" else "挑原来的消费",
+            style = MaterialTheme.typography.titleLarge,
+            color = colors.ink,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = if (isExpense) {
+                "同平台上金额对得上、还没配过对的退款。配好之后两条都能互相跳，钱只算一次。"
+            } else {
+                "还没退完、金额够这一笔的消费。配好之后这笔退款会从合计里让开，回到那笔消费的退款额里。"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.ink3,
+        )
+        Spacer(Modifier.height(12.dp))
+        if (candidates.isEmpty()) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.panel2)
+                    .padding(horizontal = 14.dp, vertical = 18.dp),
+            ) {
+                Text(
+                    text = if (isExpense) {
+                        "没找到金额合适的退款记录。可能这笔是从桌面端折进来的，或者退款那一条还没导入。"
+                    } else {
+                        "没找到能配的消费。试试先把那笔支出记上，再来关联。"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.ink3,
+                )
+            }
+        } else {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 380.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                candidates.forEach { candidate ->
+                    EntryRow(entry = candidate, showDate = true, onClick = { onPick(candidate) })
+                    Hairline()
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+/**
  * 「这条的来历」：来源、具体时间、退款、交易单号、记录时间。
  * 这些都是表单改不了、但看账时想知道的信息，集中放在删除按钮上面。
  */
@@ -434,10 +693,7 @@ private fun MetaCard(entry: Entry) {
     val rows = buildList {
         add("时间" to if (entry.time.isBlank()) "未记录具体时间" else entry.time)
         add("来源" to sourceLabel(entry.source))
-        if (entry.refundedAmount > 0) {
-            val at = if (entry.refundedAt.isBlank()) "" else " · 退款于 ${Fmt.shortDate(entry.refundedAt)}"
-            add("退款" to "已退 ${Fmt.yuan(entry.refundedAmount)}$at")
-        }
+        // 退款金额和日期归上面那张「退款关联」卡管，这里不重复
         val status = when {
             entry.archived -> "已收起，列表和合计里都不算"
             entry.excluded && entry.kind == Kind.EXPENSE -> "退款记录，不计入合计"

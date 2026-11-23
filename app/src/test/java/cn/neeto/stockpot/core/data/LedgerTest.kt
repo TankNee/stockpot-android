@@ -3,6 +3,8 @@ package cn.neeto.stockpot.core.data
 import cn.neeto.stockpot.core.importer.BillParser
 import cn.neeto.stockpot.core.importer.ImportEngine
 import cn.neeto.stockpot.core.importer.ParsedBill
+import cn.neeto.stockpot.core.model.Entry
+import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.core.model.emptyLedger
@@ -51,9 +53,78 @@ class LedgerTest {
         )
         val outcome = ImportEngine.apply(afterPurchase, refund, "b.xlsx")
         assertEquals(1, outcome.refundsLinked)
+        assertEquals(2, outcome.ledger.entries.size)
         val linked = outcome.ledger.entries.first { it.externalId == "W1" }
         assertEquals(30000L, linked.refundedAmount)
-        assertEquals(1, outcome.ledger.entries.size)
+        // 退款行留着，两边互相指认，点一下能跳到对面
+        val refundRow = outcome.ledger.entries.first { it.externalId == "W2" }
+        assertEquals(linked.id, refundRow.refundLinkId)
+        assertEquals(refundRow.id, linked.refundLinkId)
+        assertTrue(refundRow.excluded)
+        // 钱只算一次：合计是 0，不是 -300 + 300
+        assertEquals(0L, LedgerMath.summarize(outcome.ledger.entries, "2026-11").expense)
+        assertEquals(0L, LedgerMath.summarize(outcome.ledger.entries, "2026-11").income)
+    }
+
+    @Test
+    fun `linking a refund by hand keeps the net the same and unlinking restores it`() {
+        fun spend(id: String, amount: Long) = Entry(
+            id = id, date = "2026-11-01", kind = Kind.EXPENSE, amount = amount, category = "购物",
+        )
+        fun refund(id: String, amount: Long) = Entry(
+            id = id, date = "2026-11-05", kind = Kind.INCOME, amount = amount, category = "退款",
+        )
+        val ledger = emptyLedger().copy(entries = listOf(spend("e1", 30_000), refund("r1", 10_000)))
+        val before = LedgerMath.allTimeNet(ledger.entries)
+        assertEquals(-30_000L + 10_000L, before)
+
+        val linked = LedgerOps.linkRefund(ledger, "e1", "r1")
+        assertEquals("r1", linked.entries.first { it.id == "e1" }.refundLinkId)
+        assertEquals("e1", linked.entries.first { it.id == "r1" }.refundLinkId)
+        assertEquals(10_000L, linked.entries.first { it.id == "e1" }.refundedAmount)
+        // 退款行改为不计入，支出只算剩下的 200：净额还是 -200
+        assertEquals(-20_000L, LedgerMath.allTimeNet(linked.entries))
+
+        val unlinked = LedgerOps.unlinkRefund(linked, "r1")
+        assertEquals("", unlinked.entries.first { it.id == "e1" }.refundLinkId)
+        assertEquals(0L, unlinked.entries.first { it.id == "e1" }.refundedAmount)
+        assertEquals(-20_000L, LedgerMath.allTimeNet(unlinked.entries))
+    }
+
+    @Test
+    fun `deleting a refund row gives the money back to the purchase`() {
+        val ledger = emptyLedger().copy(
+            entries = listOf(
+                Entry(id = "e1", date = "2026-11-01", kind = Kind.EXPENSE, amount = 30_000),
+                Entry(id = "r1", date = "2026-11-05", kind = Kind.INCOME, amount = 10_000),
+            ),
+        )
+        val linked = LedgerOps.linkRefund(ledger, "e1", "r1")
+        val after = LedgerOps.deleteEntry(linked, "r1")
+        assertEquals(1, after.entries.size)
+        val expense = after.entries.single()
+        assertEquals(0L, expense.refundedAmount)
+        assertEquals("", expense.refundLinkId)
+        assertEquals(-30_000L, LedgerMath.allTimeNet(after.entries))
+    }
+
+    @Test
+    fun `refund candidates only show unlinked rows that fit`() {
+        val ledger = emptyLedger().copy(
+            entries = listOf(
+                Entry(id = "e1", date = "2026-11-01", kind = Kind.EXPENSE, amount = 30_000),
+                Entry(id = "small", date = "2026-11-02", kind = Kind.INCOME, amount = 10_000),
+                Entry(id = "big", date = "2026-11-02", kind = Kind.INCOME, amount = 50_000),
+                Entry(id = "taken", date = "2026-11-03", kind = Kind.INCOME, amount = 10_000, refundLinkId = "x"),
+            ),
+        )
+        val hits = LedgerOps.refundCandidates(ledger, ledger.entries.first { it.id == "e1" })
+        assertEquals(listOf("small"), hits.map { it.id })
+
+        // 退款行反过来只能挑还没退满的支出
+        val refundRow = ledger.entries.first { it.id == "small" }
+        val expenses = LedgerOps.refundCandidates(ledger, refundRow)
+        assertEquals(listOf("e1"), expenses.map { it.id })
     }
 
     @Test

@@ -205,6 +205,13 @@ fun PotRoot(
     var editorOpen by remember { mutableStateOf(false) }
     var editorEntry by remember { mutableStateOf<Entry?>(null) }
     var editorDate by rememberSaveable { mutableStateOf(Fmt.today()) }
+    // 从一条账目点进它关联的那条（退款 ⇄ 原消费），退回时按这个栈一层层回去
+    var editorTrail by remember { mutableStateOf<List<Entry>>(emptyList()) }
+    // 弹层里显示的那条要跟着账本走：刚关联完 refundLinkId 就变了，
+    // 还拿打开时的快照就会一直显示「未关联」。
+    val liveEditorEntry = editorEntry?.let { current ->
+        ledger.entries.firstOrNull { it.id == current.id } ?: current
+    }
 
     var undoEntry by remember { mutableStateOf<Entry?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
@@ -331,7 +338,24 @@ fun PotRoot(
     fun openEditor(entry: Entry?, date: String) {
         editorEntry = entry
         editorDate = date
+        editorTrail = emptyList()
         editorOpen = true
+    }
+
+    /** 跳到对面那条，当前这条压进栈，返回箭头能原路退回来。 */
+    fun openLinkedEntry(target: Entry) {
+        val current = liveEditorEntry
+        if (current != null && current.id != target.id) editorTrail = editorTrail + current
+        editorEntry = target
+        editorDate = target.date
+        editorOpen = true
+    }
+
+    fun popLinkedEntry() {
+        val previous = editorTrail.lastOrNull() ?: return
+        editorTrail = editorTrail.dropLast(1)
+        editorEntry = previous
+        editorDate = previous.date
     }
 
     fun selectTab(id: String) {
@@ -712,11 +736,12 @@ fun PotRoot(
     if (editorOpen) {
         EntryEditorSheet(
             ledger = ledger,
-            existing = editorEntry,
+            existing = liveEditorEntry,
             initialDate = editorDate,
             onDismiss = {
                 editorOpen = false
                 editorEntry = null
+                editorTrail = emptyList()
             },
             onSave = {
                 vm.addEntry(it)
@@ -731,6 +756,10 @@ fun PotRoot(
                 vm.deleteEntry(entry.id)
             },
             onAddCategory = { name -> vm.addCategory(name, "", "") },
+            onOpenEntry = { openLinkedEntry(it) },
+            onLinkRefund = { expenseId, refundId -> vm.linkRefund(expenseId, refundId) },
+            onUnlinkRefund = { vm.unlinkRefund(it) },
+            onBack = if (editorTrail.isEmpty()) null else ({ popLinkedEntry() }),
         )
     }
 }

@@ -63,6 +63,12 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
 
     fun restoreEntry(entry: Entry) = store.update { LedgerOps.withEntry(it, entry) }
 
+    /** 支出 ↔ 退款互相绑定，顺带把退款金额记到支出上。 */
+    fun linkRefund(expenseId: String, refundId: String) =
+        store.update { LedgerOps.linkRefund(it, expenseId, refundId) }
+
+    fun unlinkRefund(id: String) = store.update { LedgerOps.unlinkRefund(it, id) }
+
     /* ------------------------------ 分类 ------------------------------ */
 
     fun addCategory(name: String, parent: String, kind: String) = store.update {
