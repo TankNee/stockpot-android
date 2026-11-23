@@ -254,6 +254,8 @@ fun MonthStepper(
     month: String,
     onShift: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    /** 换掉中间的月份文案（流水页筛了自定义时间区间时显示区间），翻月会回到按月浏览。 */
+    label: String? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val colors = LocalPotColors.current
@@ -265,7 +267,7 @@ fun MonthStepper(
             Icon(Icons.Outlined.ChevronLeft, contentDescription = "上个月", tint = colors.ink2, modifier = Modifier.size(19.dp))
         }
         Text(
-            text = Fmt.monthLabel(month),
+            text = label ?: Fmt.monthLabel(month),
             style = MaterialTheme.typography.titleMedium,
             color = colors.ink,
             modifier = Modifier.padding(horizontal = 2.dp),
