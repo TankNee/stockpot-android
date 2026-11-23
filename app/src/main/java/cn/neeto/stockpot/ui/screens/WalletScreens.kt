@@ -242,7 +242,7 @@ fun WalletKindScreen(
 
             item {
                 Text(
-                    "信用卡把欠款记成负数，净资产会自动扣掉。",
+                    "信用卡填待还金额，账上记成负数，净资产自动扣掉。",
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.ink3,
                     modifier = Modifier.padding(start = 4.dp, top = 2.dp),
@@ -379,6 +379,8 @@ fun WalletEditorScreen(
     onDelete: (Wallet) -> Unit,
 ) {
     val colors = LocalPotColors.current
+    // 信用卡填的是欠款：表单里是正数，落库记成负数，资产页就自动扣掉
+    val isCredit = wallet.kind == "credit"
     // 名称一起当 key：从「识别出的账户」点进来时草稿已经被填了名字，
     // 这里要跟着重置，否则 rememberSaveable 会把上一次空表单的 "" 还原回来。
     var name by rememberSaveable(wallet.id, isNew, wallet.name) {
@@ -386,7 +388,13 @@ fun WalletEditorScreen(
     }
     var note by rememberSaveable(wallet.id, isNew) { mutableStateOf(wallet.note) }
     var balanceText by rememberSaveable(wallet.id, isNew) {
-        mutableStateOf(if (isNew && wallet.balance == 0L) "" else Fmt.editYuan(wallet.balance))
+        mutableStateOf(
+            when {
+                wallet.balance == 0L && isNew -> ""
+                isCredit -> Fmt.editYuan(kotlin.math.abs(wallet.balance))
+                else -> Fmt.editYuan(wallet.balance)
+            },
+        )
     }
     var countInAssets by rememberSaveable(wallet.id, isNew) { mutableStateOf(wallet.countInAssets) }
     var selectable by rememberSaveable(wallet.id, isNew) { mutableStateOf(wallet.selectable) }
@@ -394,11 +402,13 @@ fun WalletEditorScreen(
 
     fun submit() {
         if (name.isBlank()) return
+        val typed = Fmt.parseYuan(balanceText) ?: 0L
         onSave(
             wallet.copy(
                 name = name.trim(),
                 note = note.trim(),
-                balance = Fmt.parseYuan(balanceText) ?: 0L,
+                // 信用卡：不管有没有手输负号，都按欠款存成负数
+                balance = if (isCredit) -kotlin.math.abs(typed) else typed,
                 countInAssets = countInAssets,
                 selectable = selectable,
             ),
@@ -455,11 +465,12 @@ fun WalletEditorScreen(
 
             PotCard(padding = PaddingValues(0.dp)) {
                 TextFieldRow(
-                    label = "账户余额",
+                    label = if (isCredit) "下月待还" else "账户余额",
                     value = balanceText,
-                    placeholder = "请输入账户余额",
+                    placeholder = if (isCredit) "输入待还金额，不用填负号" else "请输入账户余额",
                     onValueChange = { input ->
-                        balanceText = input.filter { it.isDigit() || it == '.' || it == '-' }
+                        balanceText = input
+                            .filter { it.isDigit() || it == '.' || (it == '-' && !isCredit) }
                     },
                     keyboardType = KeyboardType.Decimal,
                 )
@@ -468,9 +479,19 @@ fun WalletEditorScreen(
                 RowDivider()
                 SwitchRow(
                     label = "计入总资产",
-                    hint = "关掉后只在账户列表里显示余额",
+                    hint = if (isCredit) "关掉后只在账户列表里显示待还" else "关掉后只在账户列表里显示余额",
                     checked = countInAssets,
                     onCheckedChange = { countInAssets = it },
+                )
+            }
+
+            if (isCredit) {
+                Text(
+                    "信用卡填的是待还金额，这里按正数记，资产页和净资产里算作负债（显示成负数）。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.ink3,
+                    modifier = Modifier.padding(start = 4.dp, end = 4.dp),
+                    lineHeight = 17.sp,
                 )
             }
 

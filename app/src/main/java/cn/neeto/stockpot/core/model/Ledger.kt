@@ -315,6 +315,7 @@ fun emptyLedger(): Ledger = Ledger(
  * - 分类/规则为空时补默认值（老文件或首次启动）
  * - 补上顶级分类缺失的图标
  * - 过滤掉 id 为空的行
+ * - 信用卡余额一律记成负数（欠款），老账本里填成正数的顺手翻过来
  */
 fun Ledger.normalized(): Ledger {
     val seededCategories = if (categories.isEmpty()) defaultCategories() else categories
@@ -327,6 +328,10 @@ fun Ledger.normalized(): Ledger {
         entries = entries.filter { it.id.isNotEmpty() },
         categories = deduped,
         rules = if (rules.isEmpty()) defaultRules() else rules.filter { it.pattern.isNotEmpty() },
+        wallets = wallets.map { if (it.kind == "credit" && it.balance > 0) it.copy(balance = -it.balance) else it },
         schemaVersion = Ledger.SCHEMA_VERSION,
     )
 }
+
+/** 信用卡的余额代表欠款，统一按负数记账；资产页显示时再取绝对值当「待还」。 */
+fun Wallet.signedBalance(): Long = if (kind == "credit") -kotlin.math.abs(balance) else balance

@@ -3,6 +3,7 @@ package cn.neeto.stockpot.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -12,14 +13,16 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,8 +39,6 @@ import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.PieChart
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -55,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -292,21 +294,14 @@ fun PotRoot(
             PotBottomBar(
                 selected = if (overlay) lastTab else route,
                 onSelect = ::selectTab,
+                // 设置页没有「加一笔」这回事，最后那个 tab 就只留导航
+                showAdd = !overlay && route != "settings",
+                addHint = if (route == "assets") "添加账户" else "记一笔",
+                onAdd = {
+                    // 资产页的加号是建账户，账目页的加号是记一笔
+                    if (route == "assets") openWallet(null) else openEditor(null, Fmt.today())
+                },
             )
-        },
-        floatingActionButton = {
-            // 资产页的「添加账户」在页面里，记账按钮只出现在账目相关页面
-            if (!overlay && route != "settings" && route != "assets") {
-                FloatingActionButton(
-                    onClick = { openEditor(null, Fmt.today()) },
-                    containerColor = colors.brand,
-                    contentColor = colors.onBrand,
-                    shape = RoundedCornerShape(18.dp),
-                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp),
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = "记一笔", modifier = Modifier.size(24.dp))
-                }
-            }
         },
     ) { padding ->
         Box(
@@ -680,44 +675,108 @@ private fun PotTopBar(subtitle: String) {
     }
 }
 
+/**
+ * 底部导航：一整条悬浮的胶囊，选中的 tab 有一块淡淡的底色；右侧贴着一个圆形加号，
+ * 跟胶囊同一条水平线、上下居中对齐。设置页没有可加的东西，加号就不出现，胶囊占满整行。
+ */
 @Composable
-private fun PotBottomBar(selected: String, onSelect: (String) -> Unit) {
+private fun PotBottomBar(
+    selected: String,
+    onSelect: (String) -> Unit,
+    showAdd: Boolean,
+    addHint: String,
+    onAdd: () -> Unit,
+) {
     val colors = LocalPotColors.current
-    Column(Modifier.fillMaxWidth().background(colors.panel)) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.line))
-        Row(
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
             modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 4.dp, vertical = 7.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+                .weight(1f)
+                .height(58.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = colors.panel,
+            border = BorderStroke(1.dp, colors.line.copy(alpha = 0.9f)),
+            shadowElevation = 8.dp,
         ) {
-            tabs.forEach { item ->
-                val active = item.id == selected
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(13.dp))
-                        .clickable { onSelect(item.id) }
-                        .padding(vertical = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Icon(
-                        item.icon,
-                        contentDescription = item.label,
-                        tint = if (active) colors.brandInk else colors.ink3,
-                        modifier = Modifier.size(23.dp),
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = item.label,
-                        fontSize = 12.sp,
-                        color = if (active) colors.brandInk else colors.ink3,
-                        fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
-                        textAlign = TextAlign.Center,
-                    )
+            Row(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                tabs.forEach { item ->
+                    TabCell(item = item, active = item.id == selected) { onSelect(item.id) }
                 }
             }
+        }
+        if (showAdd) {
+            Spacer(Modifier.width(9.dp))
+            Box(
+                modifier = Modifier
+                    .size(54.dp)
+                    .clip(CircleShape)
+                    .background(colors.brand)
+                    .clickable { onAdd() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = addHint,
+                    tint = colors.onBrand,
+                    modifier = Modifier.size(27.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.TabCell(item: PotTab, active: Boolean, onClick: () -> Unit) {
+    val colors = LocalPotColors.current
+    val pill by animateColorAsState(
+        targetValue = if (active) colors.brandTint else Color.Transparent,
+        animationSpec = tween(180),
+        label = "tabPill",
+    )
+    val tone by animateColorAsState(
+        targetValue = if (active) colors.brandInk else colors.ink3,
+        animationSpec = tween(180),
+        label = "tabTone",
+    )
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(pill)
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                item.icon,
+                contentDescription = item.label,
+                tint = tone,
+                modifier = Modifier.size(21.dp),
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = item.label,
+                fontSize = 11.sp,
+                color = tone,
+                fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+            )
         }
     }
 }

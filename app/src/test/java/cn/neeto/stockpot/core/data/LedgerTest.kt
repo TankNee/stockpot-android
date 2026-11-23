@@ -4,7 +4,10 @@ import cn.neeto.stockpot.core.importer.BillParser
 import cn.neeto.stockpot.core.importer.ImportEngine
 import cn.neeto.stockpot.core.importer.ParsedBill
 import cn.neeto.stockpot.core.model.Ledger
+import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.core.model.emptyLedger
+import cn.neeto.stockpot.core.model.normalized
+import cn.neeto.stockpot.core.model.signedBalance
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -240,5 +243,26 @@ class LedgerTest {
         val again = json.decodeFromString<Ledger>(encoded)
         assertEquals(1, again.entries.size)
         assertEquals("餐饮", again.entries[0].category)
+    }
+
+    // 信用卡填的是「下月待还」，用户不会自己加负号，载入时统一翻成负债
+    @Test
+    fun `信用卡填的正数在载入时翻成负债`() {
+        val ledger = emptyLedger().copy(
+            wallets = listOf(
+                Wallet(id = "w1", name = "招行信用卡", kind = "credit", balance = 884_142),
+                Wallet(id = "w2", name = "储蓄卡", kind = "debit", balance = 100_000),
+            ),
+        )
+        val fixed = ledger.normalized()
+        assertEquals(-884_142L, fixed.wallets[0].balance)
+        assertEquals(100_000L, fixed.wallets[1].balance)
+        // 净资产把欠款扣掉
+        assertEquals(100_000L - 884_142L, fixed.wallets.sumOf { it.balance })
+        // 已经记成负数的原样保留
+        assertEquals(-884_142L, fixed.normalized().wallets[0].balance)
+        assertEquals(-884_142L, fixed.wallets[0].signedBalance())
+        // 非信用卡的负余额（比如透支）不动
+        assertEquals(-50_000L, Wallet(id = "w3", name = "余额", kind = "debit", balance = -50_000).signedBalance())
     }
 }

@@ -36,6 +36,7 @@ import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.data.LedgerMath
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Wallet
+import cn.neeto.stockpot.core.model.signedBalance
 import cn.neeto.stockpot.ui.components.EmptyState
 import cn.neeto.stockpot.ui.components.Hairline
 import cn.neeto.stockpot.ui.components.PotCard
@@ -63,10 +64,10 @@ fun AssetsScreen(
     val wallets = ledger.wallets
     // 关掉「计入总资产」的账户仍留在列表里，但不参与净资产和构成，只当备注看
     val counted = wallets.filter { it.countInAssets }
-    val walletNet = remember(counted) { counted.sumOf { it.balance } }
+    val walletNet = remember(counted) { counted.sumOf { it.signedBalance() } }
     val net = walletNet + stockValue
-    val assets = remember(counted) { counted.filter { !isLiability(it) }.sumOf { it.balance } } + stockValue
-    val debts = remember(counted) { counted.filter { isLiability(it) }.sumOf { it.balance } }
+    val assets = remember(counted) { counted.filter { !isLiability(it) }.sumOf { it.signedBalance() } } + stockValue
+    val debts = remember(counted) { counted.filter { isLiability(it) }.sumOf { it.signedBalance() } }
     val entryNet = remember(ledger.entries) { LedgerMath.allTimeNet(ledger.entries) }
 
     // 一张环形图那种「按类型分」的口径，只统计资产侧，负债不进占比
@@ -89,7 +90,7 @@ fun AssetsScreen(
 
     val groups = remember(wallets, kindOptions) {
         kindOptions.map { (kind, label) ->
-            label to wallets.filter { it.kind == kind }.sortedByDescending { it.balance }
+            label to wallets.filter { it.kind == kind }.sortedByDescending { it.signedBalance() }
         }.filter { it.second.isNotEmpty() }
     }
 
@@ -105,7 +106,7 @@ fun AssetsScreen(
         }
     } else {
         LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item(key = "hero", contentType = "card") {
@@ -133,7 +134,13 @@ fun AssetsScreen(
                     Spacer(Modifier.height(12.dp))
                     Row(Modifier.fillMaxWidth()) {
                         StatColumn("总资产", Fmt.yuan(assets), colors.ink, Modifier.weight(1f))
-                        StatColumn("总负债", Fmt.yuan(debts), if (debts < 0) colors.expense else colors.ink, Modifier.weight(1f))
+                        // 负债在账上存的是负数，给人看的时候翻成正的「欠多少」
+                        StatColumn(
+                            "总负债 · 待还",
+                            Fmt.yuan(if (debts < 0) -debts else debts),
+                            if (debts < 0) colors.expense else colors.ink,
+                            Modifier.weight(1f),
+                        )
                     }
                     Spacer(Modifier.height(10.dp))
                     Text(
@@ -211,7 +218,7 @@ fun AssetsScreen(
 
             groups.forEach { (label, rows) ->
                 item(key = "g-$label", contentType = "header") {
-                    val subtotal = remember(rows) { rows.sumOf { it.balance } }
+                    val subtotal = remember(rows) { rows.sumOf { it.signedBalance() } }
                     Row(
                         Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -364,7 +371,7 @@ private fun WalletRow(wallet: Wallet, onClick: () -> Unit) {
             Spacer(Modifier.height(2.dp))
             Text(
                 listOfNotNull(
-                    walletKindLabel(wallet.kind),
+                    if (wallet.kind == "credit") "信用卡 · 待还" else walletKindLabel(wallet.kind),
                     wallet.institution.ifEmpty { null },
                     if (wallet.countInAssets) null else "不计入总资产",
                 ).joinToString("  ·  "),
@@ -376,10 +383,10 @@ private fun WalletRow(wallet: Wallet, onClick: () -> Unit) {
         }
         Spacer(Modifier.width(8.dp))
         Text(
-            Fmt.yuan(wallet.balance),
+            Fmt.yuan(wallet.signedBalance()),
             style = MoneyStyle.copy(fontSize = 15.sp),
             color = when {
-                wallet.balance < 0 -> colors.expense
+                wallet.signedBalance() < 0 -> colors.expense
                 !wallet.countInAssets -> colors.ink3
                 else -> colors.ink
             },
