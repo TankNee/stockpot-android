@@ -66,15 +66,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.IntOffset
@@ -710,31 +703,13 @@ private fun PotTopBar(subtitle: String) {
  * 底部导航：照 BiliPai 的悬浮胶囊做 —— 壳体 56dp 高、内缩 4dp，滑块跟壳体是同一个胶囊形状
  * （所以圆角是同心嵌套的），选中项的位置靠槽位插值滑过去，不是原地换色。
  * 右侧的加号跟胶囊同高、同一条水平线，设置页没有可加的东西时不出现。
+ *
+ * 分层只靠两样：底色比页面亮一点（panel vs canvas），外加一圈 1dp 的描边。
+ * 不叠投影——浅色纸上多画几层反而会糊出一圈脏边。
  */
 private val PotBarHeight = 56.dp
 private val PotBarInset = 4.dp
 private val PotBarShape = RoundedCornerShape(percent = 50)
-
-/**
- * 手绘的柔和投影：叠几层半透明圆角矩形，越往外越淡、越往下偏。
- * 米白底上系统 elevation 的阴影本来就淡，再被背景一压就更看不出来了，
- * 补这一层才有「浮在内容上」的感觉。深色主题黑压黑没意义，交给填充和描边。
- */
-private fun DrawScope.drawSoftShadow(light: Boolean) {
-    if (!light) return
-    val radius = size.height / 2f
-    // 从最大的画到最小的，小的叠上去，越靠近壳体越浓
-    for (i in 5 downTo 1) {
-        val grow = i * 1.5.dp.toPx()
-        val drop = i * 1.25.dp.toPx()
-        drawRoundRect(
-            color = Color.Black.copy(alpha = 0.022f),
-            topLeft = Offset(-grow, -grow * 0.3f + drop),
-            size = Size(size.width + grow * 2, size.height + grow * 2),
-            cornerRadius = CornerRadius(radius + grow),
-        )
-    }
-}
 
 @Composable
 private fun PotBottomBar(
@@ -770,12 +745,9 @@ private fun PotBottomBar(
         animationSpec = tween(durationMillis = if (showAdd) 160 else 90),
         label = "addAlpha",
     )
-    // 胶囊要比页面底色明显亮一档才浮得起来。浅色下是纯白→panel（#FFFDF9），
-    // 深色下是 panel2→panel，都比 canvas 高一档；之前拿 panel2 收尾，
-    // 而 panel2 几乎等于 canvas，下半截就融进背景了。
+    // 只靠底色差 + 一圈描边分层：panel 比 canvas 亮一点点，够了。
+    // 之前叠投影反而在纸色背景上糊出一圈脏边，看着很不自然。
     val light = colors.canvas.luminance() > 0.5f
-    val barTop = if (light) Color.White else colors.panel2
-    val barBottom = if (light) colors.panel else colors.panel
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -787,23 +759,10 @@ private fun PotBottomBar(
             modifier = Modifier
                 .weight(1f)
                 .height(PotBarHeight)
-                // 系统 elevation 在浅色底上偏淡，垫一层手绘的柔和投影把边缘拉开
-                .drawBehind { drawSoftShadow(light) }
-                .shadow(
-                    elevation = 18.dp,
-                    shape = PotBarShape,
-                    clip = false,
-                    ambientColor = Color.Black.copy(alpha = if (light) 0.14f else 0.30f),
-                    spotColor = Color.Black.copy(alpha = if (light) 0.26f else 0.50f),
-                )
-                .background(
-                    Brush.verticalGradient(listOf(barTop, barBottom)),
-                    PotBarShape,
-                )
-                // 极淡的一圈边界，光靠阴影在低对比的纸上容易糊成一片
+                .background(if (light) colors.panel else colors.panel2, PotBarShape)
                 .border(
                     width = 1.dp,
-                    color = if (light) colors.line.copy(alpha = 0.85f) else colors.lineStrong,
+                    color = if (light) colors.line else colors.lineStrong,
                     shape = PotBarShape,
                 )
                 .padding(PotBarInset),
@@ -841,13 +800,6 @@ private fun PotBottomBar(
                             scaleX = addScale
                             scaleY = addScale
                         }
-                        .shadow(
-                            elevation = 14.dp,
-                            shape = CircleShape,
-                            clip = false,
-                            ambientColor = colors.brand.copy(alpha = 0.28f),
-                            spotColor = colors.brand.copy(alpha = 0.45f),
-                        )
                         .background(colors.brand, CircleShape)
                         .clickable(onClick = onAdd),
                     contentAlignment = Alignment.Center,
