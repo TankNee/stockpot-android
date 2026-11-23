@@ -130,12 +130,12 @@ fun Segmented(
                     .clip(RoundedCornerShape(9.dp))
                     .background(if (active) colors.panel else Color.Transparent)
                     .clickable { onSelect(value) }
-                    .padding(vertical = 6.dp),
+                    .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = label,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
                     color = if (active) colors.ink else colors.ink3,
                     maxLines = 1,
@@ -161,7 +161,7 @@ fun Chip(
         border = BorderStroke(1.dp, if (active) Color.Transparent else colors.line),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (dotColor != null) {
@@ -175,7 +175,7 @@ fun Chip(
             }
             Text(
                 text = label,
-                fontSize = 12.sp,
+                fontSize = 13.sp,
                 color = if (active) colors.brandInk else colors.ink2,
                 fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
                 maxLines = 1,
@@ -252,7 +252,7 @@ fun MonthStepper(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = { onShift(-1) }, modifier = Modifier.size(34.dp)) {
+        IconButton(onClick = { onShift(-1) }, modifier = Modifier.size(40.dp)) {
             Icon(Icons.Outlined.ChevronLeft, contentDescription = "上个月", tint = colors.ink2, modifier = Modifier.size(19.dp))
         }
         Text(
@@ -261,7 +261,7 @@ fun MonthStepper(
             color = colors.ink,
             modifier = Modifier.padding(horizontal = 2.dp),
         )
-        IconButton(onClick = { onShift(1) }, modifier = Modifier.size(34.dp)) {
+        IconButton(onClick = { onShift(1) }, modifier = Modifier.size(40.dp)) {
             Icon(Icons.Outlined.ChevronRight, contentDescription = "下个月", tint = colors.ink2, modifier = Modifier.size(19.dp))
         }
         Spacer(Modifier.weight(1f))
@@ -330,7 +330,7 @@ fun SheetHeader(
             }
         }
         if (onClose != null) {
-            IconButton(onClick = onClose, modifier = Modifier.size(34.dp)) {
+            IconButton(onClick = onClose, modifier = Modifier.size(40.dp)) {
                 Icon(Icons.Outlined.Close, contentDescription = "关闭", tint = colors.ink3, modifier = Modifier.size(19.dp))
             }
         }

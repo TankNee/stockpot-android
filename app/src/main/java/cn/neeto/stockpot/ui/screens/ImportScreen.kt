@@ -269,7 +269,7 @@ fun ImportScreen(
                                 color = colors.ink3,
                             )
                         }
-                        TextButton(onClick = { outcome = null }) { Text("好", fontSize = 12.sp, color = colors.brandInk) }
+                        TextButton(onClick = { outcome = null }) { Text("好", fontSize = 14.sp, color = colors.brandInk) }
                     }
                 }
             }
@@ -299,7 +299,7 @@ fun ImportScreen(
                                 color = colors.ink3,
                             )
                         }
-                        Text(Fmt.stampLabel(record.importedAt), fontSize = 10.sp, color = colors.ink3)
+                        Text(Fmt.stampLabel(record.importedAt), fontSize = 12.sp, color = colors.ink3)
                     }
                 }
             }
@@ -360,21 +360,21 @@ private fun BillPreviewCard(
         Spacer(Modifier.height(10.dp))
         Row(Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f)) {
-                Text("支出合计", fontSize = 10.sp, color = colors.ink3)
+                Text("支出合计", fontSize = 12.sp, color = colors.ink3)
                 Spacer(Modifier.height(3.dp))
                 Text(Fmt.yuan(preview.expense), style = MoneyStyle.copy(fontSize = 16.sp), color = colors.expense)
             }
             Column(Modifier.weight(1f)) {
-                Text("收入合计", fontSize = 10.sp, color = colors.ink3)
+                Text("收入合计", fontSize = 12.sp, color = colors.ink3)
                 Spacer(Modifier.height(3.dp))
                 Text(Fmt.yuan(preview.income), style = MoneyStyle.copy(fontSize = 16.sp), color = colors.income)
             }
             Column(Modifier.weight(1f)) {
-                Text("日期范围", fontSize = 10.sp, color = colors.ink3)
+                Text("日期范围", fontSize = 12.sp, color = colors.ink3)
                 Spacer(Modifier.height(3.dp))
                 Text(
                     if (preview.firstDate.isEmpty()) "—" else "${Fmt.shortDate(preview.firstDate)}–${Fmt.shortDate(preview.lastDate)}",
-                    style = MoneyStyle.copy(fontSize = 13.sp),
+                    style = MoneyStyle.copy(fontSize = 15.sp),
                     color = colors.ink,
                 )
             }
@@ -392,7 +392,7 @@ private fun BillPreviewCard(
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(Fmt.shortDate(row.date), fontSize = 10.sp, color = colors.ink3, modifier = Modifier.width(40.dp))
+                    Text(Fmt.shortDate(row.date), fontSize = 12.sp, color = colors.ink3, modifier = Modifier.width(44.dp))
                     Text(
                         row.counterparty.ifEmpty { row.note.ifEmpty { "—" } },
                         style = MaterialTheme.typography.bodySmall,
@@ -403,7 +403,7 @@ private fun BillPreviewCard(
                     )
                     Text(
                         (if (row.kind == Kind.EXPENSE) "-" else "+") + Fmt.yuan(row.amount),
-                        style = MoneyStyle.copy(fontSize = 11.sp),
+                        style = MoneyStyle.copy(fontSize = 13.sp),
                         color = if (row.kind == Kind.EXPENSE) colors.expense else colors.income,
                     )
                 }
@@ -467,7 +467,7 @@ private fun LedgerPreviewCard(
 private fun PreviewStat(label: String, value: String, modifier: Modifier = Modifier) {
     val colors = LocalPotColors.current
     Column(modifier) {
-        Text(label, fontSize = 10.sp, color = colors.ink3)
+        Text(label, fontSize = 12.sp, color = colors.ink3)
         Spacer(Modifier.height(2.dp))
         Text(value, style = MoneyStyle.copy(fontSize = 17.sp), color = colors.ink)
     }

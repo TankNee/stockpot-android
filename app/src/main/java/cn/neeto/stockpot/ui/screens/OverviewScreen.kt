@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,6 +43,7 @@ import cn.neeto.stockpot.core.data.LedgerMath
 import cn.neeto.stockpot.core.data.MonthSummary
 import cn.neeto.stockpot.core.data.YearMonthTotal
 import cn.neeto.stockpot.core.model.Entry
+import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.ui.components.DailyBars
 import cn.neeto.stockpot.ui.components.Donut
@@ -55,6 +59,8 @@ import cn.neeto.stockpot.ui.components.YearBars
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
 
+private data class ProjectPeek(val id: String, val name: String, val expense: Long, val count: Int)
+
 @Composable
 fun OverviewScreen(
     ledger: Ledger,
@@ -62,7 +68,8 @@ fun OverviewScreen(
     onOpenDay: (String) -> Unit,
     onOpenMonth: (String) -> Unit,
     onOpenImport: () -> Unit,
-    onOpenWallets: () -> Unit,
+    onOpenProjects: () -> Unit,
+    onOpenProject: (String) -> Unit,
     onAddEntry: () -> Unit,
     onLoadDemo: () -> Unit,
 ) {
@@ -85,7 +92,7 @@ fun OverviewScreen(
                     }
                     Spacer(Modifier.height(14.dp))
                     TextButton(onClick = onLoadDemo) {
-                        Text("先看看示例账本", fontSize = 12.sp, color = colors.brandInk)
+                        Text("先看看示例账本", fontSize = 14.sp, color = colors.brandInk)
                     }
                 }
             }
@@ -97,8 +104,19 @@ fun OverviewScreen(
     val trend = remember(entries, month) { LedgerMath.dailyTrend(entries, month) }
     val yearRows = remember(entries, month) { LedgerMath.yearMonths(entries, Fmt.yearOf(month)) }
     val recent = remember(entries, month) { LedgerMath.monthEntries(entries, month).take(5) }
-    val allTimeNet = remember(entries) { LedgerMath.allTimeNet(entries) }
-    val walletsTotal = remember(ledger.wallets) { LedgerMath.walletsTotal(ledger) }
+    val projectPeek = remember(entries, ledger.projects) {
+        val totals = HashMap<String, Long>()
+        val counts = HashMap<String, Int>()
+        entries.forEach { entry ->
+            if (entry.projectId.isNotEmpty() && entry.countsTowardTotals && entry.kind == Kind.EXPENSE) {
+                totals[entry.projectId] = (totals[entry.projectId] ?: 0L) + entry.effectiveAmount
+                counts[entry.projectId] = (counts[entry.projectId] ?: 0) + 1
+            }
+        }
+        ledger.projects
+            .sortedByDescending { it.createdAt }
+            .map { ProjectPeek(it.id, it.name, totals[it.id] ?: 0L, counts[it.id] ?: 0) }
+    }
 
     val activeDays = trend.count { it.expense > 0 }
     val dailyAverage = if (activeDays > 0) summary.expense / activeDays else 0L
@@ -167,12 +185,11 @@ fun OverviewScreen(
             RecentCard(recent = recent, onOpenEntry = onOpenEntry, onOpenAll = { onOpenMonth(month) })
         }
 
-        item(key = "wallets", contentType = "card") {
-            WalletsCard(
-                total = walletsTotal,
-                count = ledger.wallets.size,
-                allTimeNet = allTimeNet,
-                onOpen = onOpenWallets,
+        item(key = "projects", contentType = "card") {
+            ProjectsCard(
+                projects = projectPeek,
+                onOpenProjects = onOpenProjects,
+                onOpenProject = onOpenProject,
             )
         }
     }
@@ -264,7 +281,7 @@ private fun CategoryCard(summary: MonthSummary) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             text = "支出",
-                            fontSize = 10.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             color = colors.ink3,
                         )
                         Text(
@@ -323,7 +340,7 @@ private fun RecentCard(recent: List<Entry>, onOpenEntry: (Entry) -> Unit, onOpen
         ) {
             SectionTitle("最近记录", modifier = Modifier.weight(1f))
             TextButton(onClick = onOpenAll) {
-                Text("全部", fontSize = 12.sp, color = colors.brandInk)
+                Text("全部", fontSize = 14.sp, color = colors.brandInk)
             }
         }
         recent.forEachIndexed { index, entry ->
@@ -336,27 +353,88 @@ private fun RecentCard(recent: List<Entry>, onOpenEntry: (Entry) -> Unit, onOpen
     }
 }
 
+/** 首页只露三个项目，点「全部」进项目页；点某个项目直接进它的详情。 */
 @Composable
-private fun WalletsCard(total: Long, count: Int, allTimeNet: Long, onOpen: () -> Unit) {
+private fun ProjectsCard(
+    projects: List<ProjectPeek>,
+    onOpenProjects: () -> Unit,
+    onOpenProject: (String) -> Unit,
+) {
     val colors = LocalPotColors.current
-    PotCard(onClick = onOpen) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("资产", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
-                Spacer(Modifier.height(5.dp))
+    val shown = remember(projects) { projects.take(3) }
+    PotCard(padding = PaddingValues(0.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 10.dp, top = 14.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SectionTitle("项目", modifier = Modifier.weight(1f))
+            TextButton(onClick = onOpenProjects) {
                 Text(
-                    text = Fmt.yuan(total),
-                    style = MoneyStyle.copy(fontSize = 24.sp, fontWeight = FontWeight.SemiBold),
-                    color = colors.ink,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "$count 个账户  ·  账本累计净 ${Fmt.yuan(allTimeNet, signed = true)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.ink3,
+                    if (projects.isEmpty()) "去创建" else "全部 ${projects.size} 个",
+                    fontSize = 14.sp,
+                    color = colors.brandInk,
                 )
             }
-            Text("管理", fontSize = 12.sp, color = colors.brandInk)
+        }
+        if (shown.isEmpty()) {
+            Text(
+                text = "把一次旅行、一次搬家、一次装修的账目收在一起，看这件事总共花了多少。",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.ink3,
+                lineHeight = 19.sp,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 14.dp),
+            )
+        } else {
+            shown.forEachIndexed { index, project ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenProject(project.id) }
+                        .padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.brandTint),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("📁", fontSize = 15.sp)
+                    }
+                    Spacer(Modifier.width(11.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            project.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = colors.ink,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "${project.count} 笔支出",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.ink3,
+                        )
+                    }
+                    Text(
+                        Fmt.yuan(project.expense),
+                        style = MoneyStyle.copy(fontSize = 15.sp),
+                        color = colors.expense,
+                    )
+                    Icon(
+                        Icons.Outlined.ChevronRight,
+                        contentDescription = null,
+                        tint = colors.ink3,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                if (index < shown.lastIndex) Hairline(Modifier.padding(start = 59.dp))
+            }
+            Spacer(Modifier.height(6.dp))
         }
     }
 }
@@ -453,7 +531,7 @@ private fun CategoryLegendRow(item: CategoryTotal, color: Color) {
             Spacer(Modifier.width(7.dp))
             Text(
                 text = item.category.replace("/", " · "),
-                fontSize = 12.sp,
+                fontSize = 13.sp,
                 color = colors.ink2,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -461,13 +539,13 @@ private fun CategoryLegendRow(item: CategoryTotal, color: Color) {
             )
             Text(
                 text = "${(item.share * 100).toInt()}%",
-                fontSize = 10.sp,
+                style = MaterialTheme.typography.labelSmall,
                 color = colors.ink3,
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 text = Fmt.compact(item.total),
-                style = MoneyStyle.copy(fontSize = 11.sp),
+                style = MoneyStyle.copy(fontSize = 13.sp),
                 color = colors.ink,
             )
         }
@@ -494,12 +572,12 @@ private fun CategoryLegendRow(item: CategoryTotal, color: Color) {
 private fun YearStat(label: String, value: String, hint: String?) {
     val colors = LocalPotColors.current
     Column {
-        Text(label, fontSize = 10.sp, color = colors.ink3)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = colors.ink3)
         Spacer(Modifier.height(3.dp))
-        Text(value, style = MoneyStyle.copy(fontSize = 15.sp), color = colors.ink)
+        Text(value, style = MoneyStyle.copy(fontSize = 16.sp), color = colors.ink)
         if (hint != null) {
             Spacer(Modifier.height(2.dp))
-            Text(hint, fontSize = 10.sp, color = colors.ink3)
+            Text(hint, style = MaterialTheme.typography.labelSmall, color = colors.ink3)
         }
     }
 }
@@ -512,9 +590,9 @@ fun PrimaryButton(text: String, onClick: () -> Unit) {
             .clip(RoundedCornerShape(12.dp))
             .background(colors.brand)
             .clickable { onClick() }
-            .padding(horizontal = 20.dp, vertical = 11.dp),
+            .padding(horizontal = 20.dp, vertical = 13.dp),
     ) {
-        Text(text, color = colors.onBrand, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Text(text, color = colors.onBrand, fontSize = 15.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -526,8 +604,8 @@ fun GhostButton(text: String, onClick: () -> Unit) {
             .clip(RoundedCornerShape(12.dp))
             .background(colors.panel)
             .clickable { onClick() }
-            .padding(horizontal = 20.dp, vertical = 11.dp),
+            .padding(horizontal = 20.dp, vertical = 13.dp),
     ) {
-        Text(text, color = colors.ink2, fontSize = 13.sp)
+        Text(text, color = colors.ink2, fontSize = 15.sp)
     }
 }

@@ -280,7 +280,7 @@ fun MonthCalendar(
                 Text(
                     text = label,
                     modifier = Modifier.weight(1f),
-                    fontSize = 10.sp,
+                    fontSize = 11.sp,
                     color = colors.ink3,
                     textAlign = TextAlign.Center,
                 )
@@ -292,7 +292,7 @@ fun MonthCalendar(
                 .fillMaxWidth()
                 .pointerInput(cells, rows) {
                     val gapPx = cellGap.toPx()
-                    val rowHeight = 46.dp.toPx() + gapPx
+                    val rowHeight = 50.dp.toPx() + gapPx
                     detectTapGestures { tap ->
                         val columnWidth = (size.width - gapPx * 6) / 7f
                         val unit = columnWidth + gapPx
@@ -346,7 +346,7 @@ private fun CalendarCell(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(46.dp)
+            .height(50.dp)
             .then(if (isSelected || isToday) Modifier.border(1.dp, if (isSelected) colors.brand else colors.lineStrong, shape) else Modifier)
             .background(tint, shape)
             .padding(horizontal = 5.dp, vertical = 4.dp),
@@ -354,7 +354,7 @@ private fun CalendarCell(
         Column(Modifier.fillMaxSize()) {
             Text(
                 text = day.day.toString(),
-                fontSize = 10.sp,
+                fontSize = 11.sp,
                 color = if (isToday) colors.brandInk else colors.ink2,
                 fontWeight = if (isToday) FontWeight.SemiBold else FontWeight.Normal,
             )

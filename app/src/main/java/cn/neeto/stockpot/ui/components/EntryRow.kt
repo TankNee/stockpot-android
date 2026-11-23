@@ -51,10 +51,10 @@ fun EntryRow(
         modifier = modifier
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
-            .padding(horizontal = 16.dp, vertical = 11.dp),
+            .padding(horizontal = 16.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CategoryAvatar(entry.category.ifEmpty { "其" }, size = 36)
+        CategoryAvatar(entry.category.ifEmpty { "其" }, size = 38)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -98,7 +98,7 @@ fun EntryRow(
             }
             if (meta.isNotEmpty()) {
                 Spacer(Modifier.height(2.dp))
-                Text(meta, fontSize = 10.sp, color = colors.ink3)
+                Text(meta, fontSize = 12.sp, color = colors.ink3)
             }
         }
     }
@@ -127,11 +127,11 @@ fun DayHeader(
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (income > 0) {
-                Text("+${Fmt.yuan(income)}", fontSize = 11.sp, color = colors.income)
+                Text("+${Fmt.yuan(income)}", fontSize = 13.sp, color = colors.income)
                 Spacer(Modifier.width(8.dp))
             }
             if (expense > 0) {
-                Text("-${Fmt.yuan(expense)}", fontSize = 11.sp, color = colors.expense)
+                Text("-${Fmt.yuan(expense)}", fontSize = 13.sp, color = colors.expense)
             }
         }
     }

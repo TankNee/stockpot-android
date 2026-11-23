@@ -333,7 +333,7 @@ private fun SettingsRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 13.dp),
+            .padding(horizontal = 16.dp, vertical = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -409,14 +409,15 @@ private fun CategoryManagerSheet(
                     Spacer(Modifier.height(2.dp))
                     Text(
                         "两层的树：分组下面挂子分类。改名会同步更新已有账目。",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.bodySmall,
                         color = colors.ink3,
+                        lineHeight = 19.sp,
                     )
                 }
                 PrimaryButton("新建", onClick = { adding = true })
             }
             Spacer(Modifier.height(10.dp))
-            LazyColumn(Modifier.fillMaxWidth().height(420.dp)) {
+            LazyColumn(Modifier.fillMaxWidth().height(440.dp)) {
                 ledger.categoryTree().forEach { (group, children) ->
                     item(key = "g-${group.path}") {
                         Row(
@@ -424,16 +425,16 @@ private fun CategoryManagerSheet(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .clickable { editing = group }
-                                .padding(vertical = 9.dp, horizontal = 4.dp),
+                                .padding(vertical = 11.dp, horizontal = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Box(
                                 Modifier
-                                    .size(7.dp)
+                                    .size(8.dp)
                                     .clip(CircleShape)
                                     .background(colors.brand),
                             )
-                            Spacer(Modifier.width(9.dp))
+                            Spacer(Modifier.width(10.dp))
                             Text(
                                 group.name,
                                 style = MaterialTheme.typography.bodyMedium,
@@ -447,18 +448,18 @@ private fun CategoryManagerSheet(
                                     Kind.INCOME -> "收入"
                                     else -> "通用"
                                 },
-                                fontSize = 10.sp,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = colors.ink3,
                             )
                             IconButton(
                                 onClick = { deleting = group },
-                                modifier = Modifier.size(30.dp),
+                                modifier = Modifier.size(40.dp),
                             ) {
                                 Icon(
                                     Icons.Outlined.DeleteOutline,
                                     contentDescription = "删除分类",
                                     tint = colors.ink3,
-                                    modifier = Modifier.size(15.dp),
+                                    modifier = Modifier.size(18.dp),
                                 )
                             }
                         }
@@ -470,21 +471,21 @@ private fun CategoryManagerSheet(
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(10.dp))
                                     .clickable { editing = child }
-                                    .padding(start = 24.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
+                                    .padding(start = 28.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
                                     child.name,
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = colors.ink2,
                                     modifier = Modifier.weight(1f),
                                 )
-                                IconButton(onClick = { deleting = child }, modifier = Modifier.size(30.dp)) {
+                                IconButton(onClick = { deleting = child }, modifier = Modifier.size(40.dp)) {
                                     Icon(
                                         Icons.Outlined.DeleteOutline,
                                         contentDescription = "删除分类",
                                         tint = colors.ink3,
-                                        modifier = Modifier.size(14.dp),
+                                        modifier = Modifier.size(17.dp),
                                     )
                                 }
                             }
@@ -579,10 +580,10 @@ fun CategoryEditorDialog(
                     value = name,
                     onValueChange = { name = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("分类名称", color = colors.ink3, fontSize = 13.sp) },
+                    placeholder = { Text("分类名称", color = colors.ink3, fontSize = 14.sp) },
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
-                    textStyle = MaterialTheme.typography.bodySmall,
+                    textStyle = MaterialTheme.typography.bodyMedium,
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = colors.panel2,
                         unfocusedContainerColor = colors.panel2,
@@ -659,8 +660,9 @@ private fun RuleManagerSheet(
             Spacer(Modifier.height(2.dp))
             Text(
                 "导入账单时，交易对方和备注里出现关键词就归到对应分类；越长的关键词优先级越高。",
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.bodySmall,
                 color = colors.ink3,
+                lineHeight = 19.sp,
             )
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -668,10 +670,10 @@ private fun RuleManagerSheet(
                     value = pattern,
                     onValueChange = { pattern = it },
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("关键词，如 星巴克", color = colors.ink3, fontSize = 13.sp) },
+                    placeholder = { Text("关键词，如 星巴克", color = colors.ink3, fontSize = 14.sp) },
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
-                    textStyle = MaterialTheme.typography.bodySmall,
+                    textStyle = MaterialTheme.typography.bodyMedium,
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = colors.panel2,
                         unfocusedContainerColor = colors.panel2,
@@ -686,11 +688,11 @@ private fun RuleManagerSheet(
                         .clip(RoundedCornerShape(10.dp))
                         .background(colors.panel2)
                         .clickable { showPicker = true }
-                        .padding(horizontal = 10.dp, vertical = 12.dp),
+                        .padding(horizontal = 12.dp, vertical = 14.dp),
                 ) {
                     Text(
                         category.ifEmpty { "选分类" },
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         color = if (category.isEmpty()) colors.ink3 else colors.ink,
                         maxLines = 1,
                     )
@@ -712,38 +714,38 @@ private fun RuleManagerSheet(
             Spacer(Modifier.height(12.dp))
             Hairline()
             Spacer(Modifier.height(6.dp))
-            LazyColumn(Modifier.fillMaxWidth().height(360.dp)) {
+            LazyColumn(Modifier.fillMaxWidth().height(400.dp)) {
                 items(ledger.rules.size) { index ->
                     val rule = ledger.rules[index]
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 3.dp),
+                            .padding(vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(rule.pattern, style = MaterialTheme.typography.bodySmall, color = colors.ink)
+                        Text(rule.pattern, style = MaterialTheme.typography.bodyMedium, color = colors.ink)
                         Spacer(Modifier.width(8.dp))
                         Icon(
                             Icons.Outlined.ChevronRight,
                             contentDescription = null,
                             tint = colors.ink3,
-                            modifier = Modifier.size(12.dp),
+                            modifier = Modifier.size(13.dp),
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
                             rule.category.replace("/", " · "),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelMedium,
                             color = colors.ink3,
                             modifier = Modifier.weight(1f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        IconButton(onClick = { onDelete(rule.id) }, modifier = Modifier.size(28.dp)) {
+                        IconButton(onClick = { onDelete(rule.id) }, modifier = Modifier.size(40.dp)) {
                             Icon(
                                 Icons.Outlined.DeleteOutline,
                                 contentDescription = "删除规则",
                                 tint = colors.ink3,
-                                modifier = Modifier.size(14.dp),
+                                modifier = Modifier.size(17.dp),
                             )
                         }
                     }

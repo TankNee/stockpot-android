@@ -2,6 +2,7 @@ package cn.neeto.stockpot.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -31,7 +32,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.PieChart
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Settings
@@ -63,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.util.Documents
+import cn.neeto.stockpot.ui.screens.AssetsScreen
 import cn.neeto.stockpot.ui.screens.EntriesScreen
 import cn.neeto.stockpot.ui.screens.EntryEditorSheet
 import cn.neeto.stockpot.ui.screens.ImportScreen
@@ -70,7 +72,6 @@ import cn.neeto.stockpot.ui.screens.OverviewScreen
 import cn.neeto.stockpot.ui.screens.ProjectDetailScreen
 import cn.neeto.stockpot.ui.screens.ProjectsScreen
 import cn.neeto.stockpot.ui.screens.SettingsScreen
-import cn.neeto.stockpot.ui.screens.WalletSheet
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import kotlinx.coroutines.delay
 
@@ -79,21 +80,29 @@ private data class PotTab(val id: String, val label: String, val icon: ImageVect
 private val tabs = listOf(
     PotTab("overview", "总览", Icons.Outlined.PieChart, "本地账本 · 数据只在这台手机上"),
     PotTab("entries", "流水", Icons.Outlined.ReceiptLong, "每一笔都可以改，也可以删"),
-    PotTab("projects", "项目", Icons.Outlined.FolderOpen, "按一件事看花销，不改账目本身"),
+    PotTab("assets", "资产", Icons.Outlined.AccountBalanceWallet, "账户余额与净资产，余额自己维护"),
     PotTab("settings", "设置", Icons.Outlined.Settings, "外观、分类、规则、导入与备份"),
 )
 
-/** 导入不再是 tab，变成一个可以从设置 / 空状态进入的页面。 */
+/** 压在 tab 之上的页面：导入、项目列表、项目详情。 */
 private const val ROUTE_IMPORT = "import"
+private const val ROUTE_PROJECTS = "projects"
 private const val PROJECT_PREFIX = "project/"
 
 private fun tabIndex(id: String): Int = tabs.indexOfFirst { it.id == id }.let { if (it < 0) 0 else it }
 
-/** 切 tab 时决定从哪边滑进来：右边的往左推，左边的往右退。 */
-private fun routeRank(route: String): Int = when {
-    route == ROUTE_IMPORT || route.startsWith(PROJECT_PREFIX) -> tabs.size
+/**
+ * 谁在谁上面。tab 之间比序号，叠加页统一排在所有 tab 后面，
+ * 项目详情再压在项目列表上面，这样返回时动画方向不会反。
+ */
+private fun routeOrder(route: String): Int = when {
+    route.startsWith(PROJECT_PREFIX) -> 100
+    route == ROUTE_PROJECTS || route == ROUTE_IMPORT -> 90
     else -> tabIndex(route)
 }
+
+private fun isOverlay(route: String): Boolean =
+    route == ROUTE_IMPORT || route == ROUTE_PROJECTS || route.startsWith(PROJECT_PREFIX)
 
 @Composable
 fun PotRoot(
@@ -106,22 +115,23 @@ fun PotRoot(
 
     var route by rememberSaveable { mutableStateOf("overview") }
     var lastTab by rememberSaveable { mutableStateOf("overview") }
+    /** 叠加页是从哪儿来的，返回时回到那一页（可能是另一个叠加页）。 */
+    var parentRoute by rememberSaveable { mutableStateOf<String?>(null) }
     var entriesMonth by rememberSaveable { mutableStateOf(Fmt.currentMonth()) }
     var entriesDate by rememberSaveable { mutableStateOf<String?>(null) }
 
     var editorOpen by remember { mutableStateOf(false) }
     var editorEntry by remember { mutableStateOf<Entry?>(null) }
     var editorDate by rememberSaveable { mutableStateOf(Fmt.today()) }
-    var showWallets by remember { mutableStateOf(false) }
 
     var undoEntry by remember { mutableStateOf<Entry?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
 
-    val onTab = route == ROUTE_IMPORT || route.startsWith(PROJECT_PREFIX)
+    val overlay = isOverlay(route)
     val activeTab = tabs.firstOrNull { it.id == route } ?: tabs.first { it.id == lastTab }
     val subtitle = when {
         route == ROUTE_IMPORT -> "微信 / 支付宝 / iCost / 通用 CSV"
-        route.startsWith(PROJECT_PREFIX) -> "按一件事看花销，不改账目本身"
+        route == ROUTE_PROJECTS -> "按一件事看花销，不改账目本身"
         else -> activeTab.hint
     }
 
@@ -138,11 +148,26 @@ fun PotRoot(
         }
     }
     LaunchedEffect(incomingFile) {
-        if (incomingFile != null) route = ROUTE_IMPORT
+        if (incomingFile != null && !route.startsWith(ROUTE_IMPORT)) {
+            parentRoute = route
+            route = ROUTE_IMPORT
+        }
     }
 
-    // 导入页与项目详情是「压在上面」的页面，返回键回到上次的 tab
-    BackHandler(enabled = onTab) { route = lastTab }
+    fun openOverlay(target: String) {
+        parentRoute = route
+        route = target
+    }
+
+    fun popOverlay() {
+        route = parentRoute ?: lastTab
+        parentRoute = null
+    }
+
+    fun openProject(id: String) = openOverlay(PROJECT_PREFIX + id)
+
+    // 叠加页之间也有层级：项目详情返回项目列表，项目列表返回原 tab
+    BackHandler(enabled = overlay) { popOverlay() }
 
     fun openEditor(entry: Entry?, date: String) {
         editorEntry = entry
@@ -152,6 +177,7 @@ fun PotRoot(
 
     fun selectTab(id: String) {
         lastTab = id
+        parentRoute = null
         route = id
     }
 
@@ -163,12 +189,13 @@ fun PotRoot(
         topBar = { PotTopBar(subtitle = subtitle) },
         bottomBar = {
             PotBottomBar(
-                selected = if (onTab) lastTab else route,
+                selected = if (overlay) lastTab else route,
                 onSelect = ::selectTab,
             )
         },
         floatingActionButton = {
-            if (!onTab && route != "settings") {
+            // 资产页的「添加账户」在页面里，记账按钮只出现在账目相关页面
+            if (!overlay && route != "settings" && route != "assets") {
                 FloatingActionButton(
                     onClick = { openEditor(null, Fmt.today()) },
                     containerColor = colors.brand,
@@ -176,7 +203,7 @@ fun PotRoot(
                     shape = RoundedCornerShape(18.dp),
                     elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp),
                 ) {
-                    Icon(Icons.Filled.Add, contentDescription = "记一笔", modifier = Modifier.size(23.dp))
+                    Icon(Icons.Filled.Add, contentDescription = "记一笔", modifier = Modifier.size(24.dp))
                 }
             }
         },
@@ -190,7 +217,7 @@ fun PotRoot(
                 targetState = route,
                 modifier = Modifier.fillMaxSize(),
                 transitionSpec = {
-                    val forward = routeRank(targetState) >= routeRank(initialState)
+                    val forward = routeOrder(targetState) >= routeOrder(initialState)
                     val enter = slideInHorizontally(
                         animationSpec = tween(240, easing = FastOutSlowInEasing),
                     ) { width -> if (forward) width / 8 else -width / 8 } + fadeIn(tween(180))
@@ -216,8 +243,9 @@ fun PotRoot(
                                 entriesMonth = month
                                 selectTab("entries")
                             },
-                            onOpenImport = { route = ROUTE_IMPORT },
-                            onOpenWallets = { showWallets = true },
+                            onOpenImport = { openOverlay(ROUTE_IMPORT) },
+                            onOpenProjects = { openOverlay(ROUTE_PROJECTS) },
+                            onOpenProject = { openProject(it) },
                             onAddEntry = { openEditor(null, Fmt.today()) },
                             onLoadDemo = {
                                 vm.loadDemo()
@@ -230,35 +258,43 @@ fun PotRoot(
                             initialMonth = entriesMonth,
                             initialDate = entriesDate,
                             onOpenEntry = { openEditor(it, it.date) },
-                            onOpenImport = { route = ROUTE_IMPORT },
+                            onOpenImport = { openOverlay(ROUTE_IMPORT) },
                         )
 
-                        current == "projects" -> ProjectsScreen(
+                        current == "assets" -> AssetsScreen(
                             ledger = ledger,
-                            onOpenProject = { id -> route = PROJECT_PREFIX + id },
+                            onAdd = vm::addWallet,
+                            onUpdate = vm::updateWallet,
+                            onDelete = vm::deleteWallet,
+                        )
+
+                        current == "settings" -> SettingsScreen(
+                            vm = vm,
+                            onToast = { toast = it },
+                            onOpenImport = { openOverlay(ROUTE_IMPORT) },
+                        )
+
+                        current == ROUTE_PROJECTS -> ProjectsScreen(
+                            ledger = ledger,
+                            onBack = { popOverlay() },
+                            onOpenProject = { openProject(it) },
                             onCreate = { name, note, start, end ->
                                 vm.createProject(name, note, start, end)
                                 toast = "项目已创建"
                             },
                         )
 
-                        current == "settings" -> SettingsScreen(
-                            vm = vm,
-                            onToast = { toast = it },
-                            onOpenImport = { route = ROUTE_IMPORT },
-                        )
-
                         current == ROUTE_IMPORT -> ImportScreen(
                             vm = vm,
                             incoming = incomingFile,
                             onIncomingConsumed = onIncomingConsumed,
-                            onBack = { route = lastTab },
+                            onBack = { popOverlay() },
                         )
 
                         current.startsWith(PROJECT_PREFIX) -> ProjectDetailScreen(
                             ledger = ledger,
                             projectId = current.removePrefix(PROJECT_PREFIX),
-                            onBack = { route = lastTab },
+                            onBack = { popOverlay() },
                             onOpenEntry = { openEditor(it, it.date) },
                             onUpdate = vm::updateProject,
                             onDelete = vm::deleteProject,
@@ -278,7 +314,7 @@ fun PotRoot(
                     .padding(bottom = 4.dp),
             ) {
                 val pending = undoEntry
-                androidx.compose.animation.AnimatedVisibility(
+                AnimatedVisibility(
                     visible = pending != null,
                     enter = slideInVertically(tween(180)) { it } + fadeIn(tween(120)),
                     exit = slideOutVertically(tween(140)) { it } + fadeOut(tween(100)),
@@ -290,10 +326,10 @@ fun PotRoot(
                         shadowElevation = 6.dp,
                     ) {
                         Row(
-                            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                            modifier = Modifier.padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("账目已删除", fontSize = 12.sp, color = colors.panel)
+                            Text("账目已删除", fontSize = 14.sp, color = colors.panel)
                             Spacer(Modifier.width(6.dp))
                             TextButton(
                                 onClick = {
@@ -302,14 +338,14 @@ fun PotRoot(
                                     undoEntry = null
                                 },
                             ) {
-                                Text("撤销", fontSize = 12.sp, color = colors.brand, fontWeight = FontWeight.Medium)
+                                Text("撤销", fontSize = 14.sp, color = colors.brand, fontWeight = FontWeight.Medium)
                             }
                         }
                     }
                 }
 
                 val notice = toast
-                androidx.compose.animation.AnimatedVisibility(
+                AnimatedVisibility(
                     visible = notice != null && pending == null,
                     enter = fadeIn(tween(150)),
                     exit = fadeOut(tween(150)),
@@ -323,9 +359,9 @@ fun PotRoot(
                     ) {
                         Text(
                             text = notice.orEmpty(),
-                            fontSize = 12.sp,
+                            fontSize = 14.sp,
                             color = colors.panel,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
                         )
                     }
                 }
@@ -355,16 +391,6 @@ fun PotRoot(
                 vm.deleteEntry(entry.id)
             },
             onAddCategory = { name -> vm.addCategory(name, "", "") },
-        )
-    }
-
-    if (showWallets) {
-        WalletSheet(
-            ledger = ledger,
-            onDismiss = { showWallets = false },
-            onAdd = vm::addWallet,
-            onUpdate = vm::updateWallet,
-            onDelete = vm::deleteWallet,
         )
     }
 }
@@ -412,7 +438,7 @@ private fun PotBottomBar(selected: String, onSelect: (String) -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 4.dp, vertical = 6.dp),
+                .padding(horizontal = 4.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
             tabs.forEach { item ->
@@ -420,21 +446,21 @@ private fun PotBottomBar(selected: String, onSelect: (String) -> Unit) {
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(13.dp))
                         .clickable { onSelect(item.id) }
-                        .padding(vertical = 5.dp),
+                        .padding(vertical = 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Icon(
                         item.icon,
                         contentDescription = item.label,
                         tint = if (active) colors.brandInk else colors.ink3,
-                        modifier = Modifier.size(21.dp),
+                        modifier = Modifier.size(23.dp),
                     )
-                    Spacer(Modifier.height(3.dp))
+                    Spacer(Modifier.height(4.dp))
                     Text(
                         text = item.label,
-                        fontSize = 10.sp,
+                        fontSize = 12.sp,
                         color = if (active) colors.brandInk else colors.ink3,
                         fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
                         textAlign = TextAlign.Center,

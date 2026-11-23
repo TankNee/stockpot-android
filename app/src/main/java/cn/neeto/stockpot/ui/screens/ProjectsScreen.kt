@@ -78,6 +78,7 @@ private fun projectEntries(ledger: Ledger, projectId: String): List<Entry> =
 @Composable
 fun ProjectsScreen(
     ledger: Ledger,
+    onBack: () -> Unit,
     onOpenProject: (String) -> Unit,
     onCreate: (name: String, note: String, start: String, end: String) -> Unit,
 ) {
@@ -89,18 +90,27 @@ fun ProjectsScreen(
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 10.dp),
+                .padding(start = 6.dp, end = 14.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Outlined.ArrowBack, contentDescription = "返回", tint = colors.ink2, modifier = Modifier.size(21.dp))
+            }
             Text(
-                text = "把一次旅行、一次搬家、一次装修的账目收在一起。",
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.ink3,
+                text = "项目",
+                style = MaterialTheme.typography.titleLarge,
+                color = colors.ink,
                 modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.width(8.dp))
             PrimaryButton("新建项目", onClick = { showEditor = true })
         }
+        Text(
+            text = "把一次旅行、一次搬家、一次装修的账目收在一起。项目只分组，不改分类和金额。",
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.ink3,
+            lineHeight = 19.sp,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 12.dp),
+        )
 
         if (projects.isEmpty()) {
             EmptyState(
@@ -133,7 +143,7 @@ fun ProjectsScreen(
                                 .background(colors.brandTint),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text("📁", fontSize = 16.sp)
+                            Text("📁", fontSize = 17.sp)
                         }
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
@@ -159,7 +169,7 @@ fun ProjectsScreen(
                             )
                             if (income > 0) {
                                 Spacer(Modifier.height(2.dp))
-                                Text("+${Fmt.yuan(income)}", fontSize = 11.sp, color = colors.income)
+                                Text("+${Fmt.yuan(income)}", fontSize = 13.sp, color = colors.income)
                             }
                         }
                     }
@@ -259,17 +269,17 @@ fun ProjectDetailScreen(
                 PotCard {
                     Row(Modifier.fillMaxWidth()) {
                         Column(Modifier.weight(1f)) {
-                            Text("支出", fontSize = 10.sp, color = colors.ink3)
+                            Text("支出", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
                             Spacer(Modifier.height(3.dp))
                             Text(Fmt.yuan(expense), style = MoneyStyle.copy(fontSize = 22.sp), color = colors.expense)
                         }
                         Column(Modifier.weight(1f)) {
-                            Text("收入", fontSize = 10.sp, color = colors.ink3)
+                            Text("收入", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
                             Spacer(Modifier.height(3.dp))
                             Text(Fmt.yuan(income), style = MoneyStyle.copy(fontSize = 22.sp), color = colors.income)
                         }
                         Column(Modifier.weight(1f)) {
-                            Text("日均", fontSize = 10.sp, color = colors.ink3)
+                            Text("日均", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
                             Spacer(Modifier.height(3.dp))
                             Text(Fmt.yuan(expense / days), style = MoneyStyle.copy(fontSize = 22.sp), color = colors.ink)
                         }
@@ -312,7 +322,7 @@ fun ProjectDetailScreen(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
-                                Text(Fmt.yuan(total), style = MoneyStyle.copy(fontSize = 12.sp), color = colors.ink)
+                                Text(Fmt.yuan(total), style = MoneyStyle.copy(fontSize = 14.sp), color = colors.ink)
                             }
                         }
                     }
@@ -331,7 +341,7 @@ fun ProjectDetailScreen(
                         modifier = Modifier.weight(1f),
                     )
                     TextButton(onClick = { showAttach = true }) {
-                        Text("添加账目", fontSize = 12.sp, color = colors.brandInk)
+                        Text("添加账目", fontSize = 14.sp, color = colors.brandInk)
                     }
                 }
             }
@@ -361,7 +371,7 @@ fun ProjectDetailScreen(
                         onClick = { onDetach(rows.map { it.id }.toSet()) },
                         modifier = Modifier.padding(top = 2.dp),
                     ) {
-                        Text("把账目从这个项目里全部移出", fontSize = 12.sp, color = colors.ink3)
+                        Text("把账目从这个项目里全部移出", fontSize = 14.sp, color = colors.ink3)
                     }
                 }
             }
@@ -509,10 +519,10 @@ private fun DialogField(label: String, value: String, placeholder: String, onCha
             value = value,
             onValueChange = onChange,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text(placeholder, color = colors.ink3, fontSize = 13.sp) },
+            placeholder = { Text(placeholder, color = colors.ink3, fontSize = 14.sp) },
             singleLine = true,
-            shape = RoundedCornerShape(10.dp),
-            textStyle = MaterialTheme.typography.bodySmall,
+            shape = RoundedCornerShape(12.dp),
+            textStyle = MaterialTheme.typography.bodyMedium,
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = colors.panel2,
                 unfocusedContainerColor = colors.panel2,
@@ -534,11 +544,11 @@ private fun DateBox(label: String, value: String, modifier: Modifier, onClick: (
             .clickable { onClick() }
             .padding(horizontal = 10.dp, vertical = 9.dp),
     ) {
-        Text(label, fontSize = 10.sp, color = colors.ink3)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = colors.ink3)
         Spacer(Modifier.height(2.dp))
         Text(
             value.ifEmpty { "选择日期" },
-            fontSize = 12.sp,
+            fontSize = 14.sp,
             color = if (value.isEmpty()) colors.ink3 else colors.ink,
         )
     }
@@ -590,7 +600,7 @@ fun AttachEntriesSheet(
                 TextButton(onClick = {
                     selected = if (selected.size == candidates.size) emptySet() else candidates.map { it.id }.toSet()
                 }) {
-                    Text(if (selected.size == candidates.size) "取消全选" else "全选", fontSize = 12.sp, color = colors.brandInk)
+                    Text(if (selected.size == candidates.size) "取消全选" else "全选", fontSize = 14.sp, color = colors.brandInk)
                 }
                 Spacer(Modifier.weight(1f))
                 PrimaryButton(

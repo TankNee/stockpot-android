@@ -135,7 +135,7 @@ fun EntriesScreen(
                         .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(Fmt.shortDate(day), fontSize = 11.sp, color = colors.panel)
+                    Text(Fmt.shortDate(day), fontSize = 12.sp, color = colors.panel)
                     Spacer(Modifier.width(3.dp))
                     Icon(Icons.Outlined.Close, contentDescription = null, tint = colors.panel, modifier = Modifier.size(13.dp))
                 }
@@ -201,7 +201,7 @@ private fun SearchField(
                 cursorBrush = SolidColor(colors.brand),
             )
             if (query.isEmpty()) {
-                Text("搜商家、备注、分类", fontSize = 13.sp, color = colors.ink3)
+                Text("搜商家、备注、分类", fontSize = 14.sp, color = colors.ink3)
             }
         }
         if (query.isNotEmpty()) {

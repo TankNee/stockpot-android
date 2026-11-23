@@ -321,7 +321,7 @@ fun EntryEditorSheet(
                             modifier = Modifier.size(17.dp),
                         )
                         Spacer(Modifier.width(5.dp))
-                        Text("删除", color = colors.danger, fontSize = 13.sp)
+                        Text("删除", color = colors.danger, fontSize = 15.sp)
                     }
                 }
                 Spacer(Modifier.weight(1f))
@@ -460,7 +460,7 @@ fun CategoryPickerDialog(
                     value = query,
                     onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("搜索分类", color = colors.ink3, fontSize = 13.sp) },
+                    placeholder = { Text("搜索分类", color = colors.ink3, fontSize = 14.sp) },
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
                     textStyle = MaterialTheme.typography.bodySmall,
@@ -522,7 +522,7 @@ fun CategoryPickerDialog(
                                 value = newName,
                                 onValueChange = { newName = it },
                                 modifier = Modifier.weight(1f),
-                                placeholder = { Text("新建分类", color = colors.ink3, fontSize = 13.sp) },
+                                placeholder = { Text("新建分类", color = colors.ink3, fontSize = 14.sp) },
                                 singleLine = true,
                                 shape = RoundedCornerShape(10.dp),
                                 textStyle = MaterialTheme.typography.bodySmall,
