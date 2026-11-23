@@ -76,6 +76,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
@@ -83,6 +84,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import cn.neeto.stockpot.R
 import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.data.StockMath
 import cn.neeto.stockpot.core.model.Entry
@@ -224,31 +226,22 @@ fun PotRoot(
     val collapses = remember { mutableStateMapOf<String, Float>() }
     val routeNow by rememberUpdatedState(route)
     val collapsePx = with(LocalDensity.current) { HeaderCollapseDistance.toPx() }
-    // 往下滚（手指往上推）就收标题；只有列表已经到顶还在下拉时才把它放回去，
-    // 跟 iOS 的大标题一个脾气，不会滚到一半往回抠一下就弹出来。
+    // 用「列表实际滚了多少」来推标题，而不是手指位移：
+    // 往下滚就收，往上滚就放回来（两个方向都跟手），内容滚不动时也不会乱缩——
+    // 之前只在"到顶后的剩余位移"里展开，可系统的高亮/拉伸效果先把那截吃掉了，
+    // 结果收起之后再也长不回去。
     val headerScroll = remember {
         object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (available.y < 0f) {
-                    val key = routeNow
-                    val now = collapses[key] ?: 0f
-                    val next = (now - available.y / collapsePx).coerceIn(0f, 1f)
-                    if (next != now) collapses[key] = next
-                }
-                return Offset.Zero
-            }
-
             override fun onPostScroll(
                 consumed: Offset,
                 available: Offset,
                 source: NestedScrollSource,
             ): Offset {
-                if (available.y > 0f) {
-                    val key = routeNow
-                    val now = collapses[key] ?: 0f
-                    val next = (now - available.y / collapsePx).coerceIn(0f, 1f)
-                    if (next != now) collapses[key] = next
-                }
+                if (consumed.y == 0f) return Offset.Zero
+                val key = routeNow
+                val now = collapses[key] ?: 0f
+                val next = (now - consumed.y / collapsePx).coerceIn(0f, 1f)
+                if (next != now) collapses[key] = next
                 return Offset.Zero
             }
         }
@@ -732,10 +725,10 @@ private val HeaderCollapsedHeight = 34.dp
 private val HeaderCollapseDistance = 76.dp
 
 /**
- * 顶栏就是当前页面的名字，不再是固定的品牌字。
+ * 顶栏 = 一口锅 + 当前页面的名字，不再是固定的品牌字。
  *
- * 上半屏往下滚的时候标题一点点缩小、说明淡掉，腾出来的高度直接还给列表；
- * 回到列表顶部再往下拉，它又长回来。收起进度由外面的滚动回调给，这里只管画。
+ * 往下滚的时候标题和图标一起缩小、说明淡掉，腾出来的高度直接还给列表；
+ * 往上滚回去又一点点长回来。收起进度由外面的滚动回调给，这里只管画。
  * [collapse] 用 lambda 传：滚动时每秒要读几十次，只让这个组合自己重算。
  */
 @Composable
@@ -756,10 +749,17 @@ private fun PotHeader(
         Spacer(Modifier.fillMaxWidth())
         return
     }
-    val c = collapse().coerceIn(0f, 1f)
+    // 滚动给的是"这一帧手指挪了多少"，直接拿它当尺寸会一帧一跳；
+    // 套一层没有回弹的弹簧，图标和字才是平滑地长大、缩小。
+    val c by animateFloatAsState(
+        targetValue = collapse().coerceIn(0f, 1f),
+        animationSpec = spring(dampingRatio = 1f, stiffness = 520f),
+        label = "headerCollapse",
+    )
     val height = (HeaderExpandedHeight * (1f - c) + HeaderCollapsedHeight * c) * (1f - hide)
     // 24sp 到 16sp：收起来之后跟其他页面的小标题一个量级，不喧宾夺主
     val titleSize = 24f + (16f - 24f) * c
+    val markSize = (24f + (18f - 24f) * c).dp
     val noteAlpha = ((1f - c * 2f) * (1f - hide)).coerceIn(0f, 1f)
     Column(
         Modifier
@@ -770,16 +770,26 @@ private fun PotHeader(
             .padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
     ) {
         Spacer(Modifier.weight(1f))
-        Text(
-            text = title,
-            fontSize = titleSize.sp,
-            lineHeight = (titleSize * 1.28f).sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = (-0.3).sp,
-            color = colors.ink,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                painter = painterResource(R.drawable.ic_pot),
+                contentDescription = null,
+                tint = colors.brand,
+                modifier = Modifier.size(markSize),
+            )
+            Spacer(Modifier.width((9f + (6.5f - 9f) * c).dp))
+            Text(
+                text = title,
+                fontSize = titleSize.sp,
+                lineHeight = (titleSize * 1.28f).sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.3).sp,
+                color = colors.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+        }
         // 说明这一行跟着收起一起被压扁（同时已经淡到看不见），
         // 标题才会稳稳地往上走，而不是先跳一下再缩。
         val noteHeight = 16.dp * (1f - c)
