@@ -8,6 +8,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -76,7 +77,6 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
@@ -84,7 +84,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import cn.neeto.stockpot.R
 import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.data.StockMath
 import cn.neeto.stockpot.core.model.Entry
@@ -344,6 +343,8 @@ fun PotRoot(
             PotHeader(
                 title = activeTab.label,
                 subtitle = subtitle,
+                // 顶栏用未选中的线条版：旁边就是 24sp 的半粗标题，图标得轻一点才不抢字
+                icon = activeTab.icon,
                 // 进度用 lambda 交进去，只让顶栏自己重组合，不牵动整页
                 collapse = { collapses[routeNow] ?: 0f },
                 hidden = overlay,
@@ -721,11 +722,11 @@ private val HeaderExpandedHeight = 58.dp
 /** 收起后只剩一行小标题，跟系统顶栏一个高度感。 */
 private val HeaderCollapsedHeight = 34.dp
 
-/** 手指在列表上滑这么多，标题从大收到小。太大半天不变，太小一碰就缩没了。 */
-private val HeaderCollapseDistance = 76.dp
+/** 手指在列表上滑这么多，标题从大收到小。拉长一点，中间那些中间态才看得见。 */
+private val HeaderCollapseDistance = 118.dp
 
 /**
- * 顶栏 = 一口锅 + 当前页面的名字，不再是固定的品牌字。
+ * 顶栏 = 当前 tab 的图标 + 页面名字，不再是固定的品牌字。
  *
  * 往下滚的时候标题和图标一起缩小、说明淡掉，腾出来的高度直接还给列表；
  * 往上滚回去又一点点长回来。收起进度由外面的滚动回调给，这里只管画。
@@ -735,6 +736,7 @@ private val HeaderCollapseDistance = 76.dp
 private fun PotHeader(
     title: String,
     subtitle: String,
+    icon: ImageVector,
     collapse: () -> Float,
     hidden: Boolean,
 ) {
@@ -749,18 +751,21 @@ private fun PotHeader(
         Spacer(Modifier.fillMaxWidth())
         return
     }
-    // 滚动给的是"这一帧手指挪了多少"，直接拿它当尺寸会一帧一跳；
-    // 套一层没有回弹的弹簧，图标和字才是平滑地长大、缩小。
-    val c by animateFloatAsState(
+    // 滚动给的是逐帧的原始进度，弹簧太硬会像"啪"一下贴上去，看着突兀；
+    // 这里两层磨：软一点的临界阻尼弹簧（不带过冲）+ 把 0..1 重映射成 smoothstep，
+    // 起手和收尾都缓，尺寸只会一点点挪，不会在两端硬拐。
+    val raw by animateFloatAsState(
         targetValue = collapse().coerceIn(0f, 1f),
-        animationSpec = spring(dampingRatio = 1f, stiffness = 520f),
+        animationSpec = spring(dampingRatio = 1f, stiffness = 240f),
         label = "headerCollapse",
     )
+    val c = raw * raw * (3f - 2f * raw)
     val height = (HeaderExpandedHeight * (1f - c) + HeaderCollapsedHeight * c) * (1f - hide)
     // 24sp 到 16sp：收起来之后跟其他页面的小标题一个量级，不喧宾夺主
     val titleSize = 24f + (16f - 24f) * c
     val markSize = (24f + (18f - 24f) * c).dp
-    val noteAlpha = ((1f - c * 2f) * (1f - hide)).coerceIn(0f, 1f)
+    // 说明那行比标题退得稍快一点（1.6 倍进度归零），免得小字糊在中间半透明
+    val noteAlpha = ((1f - c * 1.6f) * (1f - hide)).coerceIn(0f, 1f)
     Column(
         Modifier
             .fillMaxWidth()
@@ -770,25 +775,35 @@ private fun PotHeader(
             .padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
     ) {
         Spacer(Modifier.weight(1f))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                painter = painterResource(R.drawable.ic_pot),
-                contentDescription = null,
-                tint = colors.brand,
-                modifier = Modifier.size(markSize),
-            )
-            Spacer(Modifier.width((9f + (6.5f - 9f) * c).dp))
-            Text(
-                text = title,
-                fontSize = titleSize.sp,
-                lineHeight = (titleSize * 1.28f).sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = (-0.3).sp,
-                color = colors.ink,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
+        // 换 tab 时图标和标题是淡着换的，不是"啪"地翻一下
+        Crossfade(
+            targetState = title to icon,
+            animationSpec = tween(170),
+            label = "headerTitle",
+        ) { (text, mark) ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = mark,
+                    contentDescription = null,
+                    tint = colors.brand,
+                    modifier = Modifier.size(markSize),
+                )
+                Spacer(Modifier.width((9f + (6.5f - 9f) * c).dp))
+                Text(
+                    text = text,
+                    fontSize = titleSize.sp,
+                    lineHeight = (titleSize * 1.28f).sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = (-0.3).sp,
+                    color = colors.ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
         }
         // 说明这一行跟着收起一起被压扁（同时已经淡到看不见），
         // 标题才会稳稳地往上走，而不是先跳一下再缩。
