@@ -5,6 +5,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -13,10 +15,11 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -27,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -34,7 +38,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.PieChart
 import androidx.compose.material.icons.outlined.ReceiptLong
@@ -56,8 +64,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -84,13 +95,20 @@ import cn.neeto.stockpot.ui.screens.WalletKindScreen
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import kotlinx.coroutines.delay
 
-private data class PotTab(val id: String, val label: String, val icon: ImageVector, val hint: String)
+private data class PotTab(
+    val id: String,
+    val label: String,
+    val icon: ImageVector,
+    /** 选中时换成实心图标，跟 BiliPai 一样 */
+    val iconActive: ImageVector,
+    val hint: String,
+)
 
 private val tabs = listOf(
-    PotTab("overview", "总览", Icons.Outlined.PieChart, "本地账本 · 数据只在这台手机上"),
-    PotTab("entries", "流水", Icons.Outlined.ReceiptLong, "每一笔都可以改，也可以删"),
-    PotTab("assets", "资产", Icons.Outlined.AccountBalanceWallet, "账户余额与净资产，余额自己维护"),
-    PotTab("settings", "设置", Icons.Outlined.Settings, "外观、分类、规则、导入与备份"),
+    PotTab("overview", "总览", Icons.Outlined.PieChart, Icons.Filled.PieChart, "本地账本 · 数据只在这台手机上"),
+    PotTab("entries", "流水", Icons.Outlined.ReceiptLong, Icons.Filled.ReceiptLong, "每一笔都可以改，也可以删"),
+    PotTab("assets", "资产", Icons.Outlined.AccountBalanceWallet, Icons.Filled.AccountBalanceWallet, "账户余额与净资产，余额自己维护"),
+    PotTab("settings", "设置", Icons.Outlined.Settings, Icons.Filled.Settings, "外观、分类、规则、导入与备份"),
 )
 
 /** 压在 tab 之上的页面：导入、项目列表、项目详情、账户添加。 */
@@ -676,9 +694,14 @@ private fun PotTopBar(subtitle: String) {
 }
 
 /**
- * 底部导航：一整条悬浮的胶囊，选中的 tab 有一块淡淡的底色；右侧贴着一个圆形加号，
- * 跟胶囊同一条水平线、上下居中对齐。设置页没有可加的东西，加号就不出现，胶囊占满整行。
+ * 底部导航：照 BiliPai 的悬浮胶囊做 —— 壳体 56dp 高、内缩 4dp，滑块跟壳体是同一个胶囊形状
+ * （所以圆角是同心嵌套的），选中项的位置靠槽位插值滑过去，不是原地换色。
+ * 右侧的加号跟胶囊同高、同一条水平线，设置页没有可加的东西时不出现。
  */
+private val PotBarHeight = 56.dp
+private val PotBarInset = 4.dp
+private val PotBarShape = RoundedCornerShape(percent = 50)
+
 @Composable
 private fun PotBottomBar(
     selected: String,
@@ -688,24 +711,50 @@ private fun PotBottomBar(
     onAdd: () -> Unit,
 ) {
     val colors = LocalPotColors.current
+    val index = tabs.indexOfFirst { it.id == selected }.coerceAtLeast(0)
+    // 滑块位置：切 tab 时从旧槽位滑到新槽位，带一点回弹，跟看盘软件那种手感一致
+    val slotPosition by animateFloatAsState(
+        targetValue = index.toFloat(),
+        animationSpec = spring(dampingRatio = 0.76f, stiffness = 420f),
+        label = "barSlot",
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 10.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(
+        BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)
-                .height(58.dp),
-            shape = RoundedCornerShape(20.dp),
-            color = colors.panel,
-            border = BorderStroke(1.dp, colors.line.copy(alpha = 0.9f)),
-            shadowElevation = 8.dp,
+                .height(PotBarHeight)
+                // 投影画在形状外面（clip = false），壳体本身不描边，靠阴影跟页面分层
+                .shadow(
+                    elevation = 14.dp,
+                    shape = PotBarShape,
+                    clip = false,
+                    ambientColor = Color.Black.copy(alpha = 0.10f),
+                    spotColor = Color.Black.copy(alpha = 0.18f),
+                )
+                // 上浅下深的一点点过渡，避免一整块死白压在纸色上像另一张卡片
+                .background(
+                    Brush.verticalGradient(listOf(colors.panel, colors.panel2)),
+                    PotBarShape,
+                )
+                .padding(PotBarInset),
         ) {
+            val slot = maxWidth / tabs.size
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset((slot * slotPosition).roundToPx(), 0) }
+                    .width(slot)
+                    .fillMaxHeight()
+                    .clip(PotBarShape)
+                    .background(colors.brandTint),
+            )
             Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 5.dp),
+                modifier = Modifier.fillMaxSize(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 tabs.forEach { item ->
@@ -714,12 +763,18 @@ private fun PotBottomBar(
             }
         }
         if (showAdd) {
-            Spacer(Modifier.width(9.dp))
+            Spacer(Modifier.width(10.dp))
             Box(
                 modifier = Modifier
-                    .size(54.dp)
-                    .clip(CircleShape)
-                    .background(colors.brand)
+                    .size(56.dp)
+                    .shadow(
+                        elevation = 10.dp,
+                        shape = CircleShape,
+                        clip = false,
+                        ambientColor = colors.brand.copy(alpha = 0.20f),
+                        spotColor = colors.brand.copy(alpha = 0.35f),
+                    )
+                    .background(colors.brand, CircleShape)
                     .clickable { onAdd() },
                 contentAlignment = Alignment.Center,
             ) {
@@ -727,7 +782,7 @@ private fun PotBottomBar(
                     Icons.Filled.Add,
                     contentDescription = addHint,
                     tint = colors.onBrand,
-                    modifier = Modifier.size(27.dp),
+                    modifier = Modifier.size(26.dp),
                 )
             }
         }
@@ -737,46 +792,38 @@ private fun PotBottomBar(
 @Composable
 private fun RowScope.TabCell(item: PotTab, active: Boolean, onClick: () -> Unit) {
     val colors = LocalPotColors.current
-    val pill by animateColorAsState(
-        targetValue = if (active) colors.brandTint else Color.Transparent,
-        animationSpec = tween(180),
-        label = "tabPill",
-    )
+    // 滑块在两层之间滑，文字跟着变深，不用再做一块自己的底色
     val tone by animateColorAsState(
         targetValue = if (active) colors.brandInk else colors.ink3,
-        animationSpec = tween(180),
+        animationSpec = tween(200),
         label = "tabTone",
     )
-    Box(
+    Column(
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(PotBarShape)
             .clickable { onClick() },
-        contentAlignment = Alignment.Center,
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(
-            modifier = Modifier
-                .clip(RoundedCornerShape(14.dp))
-                .background(pill)
-                .padding(horizontal = 10.dp, vertical = 5.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(
-                item.icon,
-                contentDescription = item.label,
-                tint = tone,
-                modifier = Modifier.size(21.dp),
-            )
-            Spacer(Modifier.height(3.dp))
-            Text(
-                text = item.label,
+        Icon(
+            imageVector = if (active) item.iconActive else item.icon,
+            contentDescription = item.label,
+            tint = tone,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = item.label,
+            style = MaterialTheme.typography.labelSmall.copy(
                 fontSize = 11.sp,
-                color = tone,
-                fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-            )
-        }
+                lineHeight = 14.sp,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+            ),
+            color = tone,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+        )
     }
 }
