@@ -114,9 +114,10 @@ object QuoteClient {
 
     /**
      * 日 K（前复权）。`fqkline/get` 的 `param` 是 `code,day,起,止,条数,qfq`，
-     * 起止留空就取最近 N 根。
+     * 起止留空就取最近 N 根。默认要 260 根（一年交易日），
+     * 资产走势的「1 年」那一档才有东西可画。
      */
-    suspend fun fetchDaily(stock: Stock, days: Int = 120): List<Candle> = withContext(Dispatchers.IO) {
+    suspend fun fetchDaily(stock: Stock, days: Int = 260): List<Candle> = withContext(Dispatchers.IO) {
         val code = wireCode(stock)
         runCatching {
             val url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=$code,day,,,$days,qfq"

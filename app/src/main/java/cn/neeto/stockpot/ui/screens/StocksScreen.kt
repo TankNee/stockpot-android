@@ -71,6 +71,7 @@ import cn.neeto.stockpot.ui.components.SectionTitle
 import cn.neeto.stockpot.ui.components.Segmented
 import cn.neeto.stockpot.ui.components.SheetActions
 import cn.neeto.stockpot.ui.components.SheetField
+import cn.neeto.stockpot.ui.components.Sparkline
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
 import kotlin.math.abs
@@ -142,6 +143,7 @@ fun StocksScreen(
     ledger: Ledger,
     quotes: Map<String, Quote>,
     rates: Rates,
+    candles: Map<String, List<Candle>>,
     busy: Boolean,
     note: String?,
     onBack: () -> Unit,
@@ -254,6 +256,27 @@ fun StocksScreen(
                     val one = remember(account, ledger.stocks, quotes, rates) {
                         StockMath.forAccount(account, ledger.stocks.associateBy { it.id }, quotes, rates)
                     }
+                    // 列表里也带一条近一个月的走势，点进去再看完整曲线
+                    val spark = remember(account, ledger.stocks, candles, rates) {
+                        StockMath.trend(
+                            accounts = listOf(account),
+                            stocks = ledger.stocks.associateBy { it.id },
+                            candles = candles,
+                            rates = rates,
+                            limit = 30,
+                        ).map { it.value }
+                    }
+                    val sparkChange = if (spark.size < 2) 0L else spark.last() - spark.first()
+                    val sparkPercent = if (spark.size < 2 || spark.first() <= 0) {
+                        0.0
+                    } else {
+                        sparkChange * 100.0 / spark.first()
+                    }
+                    val sparkTone = when {
+                        sparkChange > 0 -> colors.expense
+                        sparkChange < 0 -> colors.income
+                        else -> colors.brand
+                    }
                     PotCard(onClick = { onOpenAccount(account.id) }) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
@@ -290,6 +313,27 @@ fun StocksScreen(
                                 )
                                 Spacer(Modifier.height(2.dp))
                                 PnlText(one.pnl, 13)
+                            }
+                        }
+                        if (spark.size >= 2) {
+                            Spacer(Modifier.height(10.dp))
+                            Sparkline(values = spark, color = sparkTone, height = 36.dp)
+                            Spacer(Modifier.height(4.dp))
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "近 1 个月市值",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.ink3,
+                                )
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    text = (if (sparkChange >= 0) "+" else "-") +
+                                        Fmt.yuan(abs(sparkChange)) + "（" +
+                                        (if (sparkPercent >= 0) "+" else "-") +
+                                        "%.2f".format(abs(sparkPercent)) + "%）",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = sparkTone,
+                                )
                             }
                         }
                     }
@@ -599,7 +643,12 @@ fun StockAccountScreen(
 
 /* ------------------------------ 账户走势 ------------------------------ */
 
-/** 券商账户的总资产曲线：按持仓 × 每日收盘价算，区间盈亏给绝对值和百分比。 */
+/**
+ * 券商账户的曲线：市值 / 盈亏 / 收益率三条，按持仓 × 每日收盘价算出来。
+ *
+ * 区间盈亏给绝对值和百分比，手指按在图上能看那一天的具体数字，
+ * 这是「收益随时间变化」最直接的看法。
+ */
 @Composable
 private fun AccountTrendCard(
     trend: List<StockMath.TrendPoint>,
@@ -608,6 +657,9 @@ private fun AccountTrendCard(
     onRetry: () -> Unit,
 ) {
     val colors = LocalPotColors.current
+    var metric by rememberSaveable { mutableStateOf("value") }
+    var picked by remember(trend, span) { mutableStateOf<Int?>(null) }
+
     val taken = remember(trend, span) {
         trend.takeLast(
             when (span) {
@@ -619,12 +671,43 @@ private fun AccountTrendCard(
     }
     val first = taken.firstOrNull()
     val last = taken.lastOrNull()
-    val change = if (first != null && last != null) last.value - first.value else 0L
+    val focus = picked?.coerceIn(0, taken.lastIndex) ?: taken.lastIndex
+    val point = taken.getOrNull(focus)
+
+    // 曲线画的序列：市值是分，盈亏也是分，收益率换成万分位（显示时再除 100）
+    val series = remember(taken, metric) {
+        when (metric) {
+            "pnl" -> taken.map { it.pnl }
+            "pct" -> taken.map { (it.pnlPercent * 100).roundToLong() }
+            else -> taken.map { it.value }
+        }
+    }
+    val baseline = when (metric) {
+        "value" -> first?.value
+        else -> 0L
+    }
+    val change = when {
+        first == null || last == null -> 0L
+        metric == "pnl" -> last.pnl - first.pnl
+        metric == "value" -> last.value - first.value
+        else -> ((last.pnlPercent - first.pnlPercent) * 100).roundToLong()
+    }
     val changePercent = if (first == null || first.value <= 0) 0.0 else change * 100.0 / first.value
-    val tone = when {
+    val changeTone = when {
         change > 0 -> colors.expense
         change < 0 -> colors.income
         else -> colors.ink3
+    }
+    val lineTone = when {
+        metric == "value" -> changeTone
+        (last?.pnl ?: 0L) > 0 -> colors.expense
+        (last?.pnl ?: 0L) < 0 -> colors.income
+        else -> colors.ink3
+    }
+    val subtitle = when (metric) {
+        "pnl" -> "每天的浮动盈亏，虚线是 0 轴"
+        "pct" -> "累计收益率，虚线是 0 轴"
+        else -> "按每日收盘价算的市值"
     }
 
     PotCard {
@@ -632,11 +715,7 @@ private fun AccountTrendCard(
             Column(Modifier.weight(1f)) {
                 Text("账户走势", style = MaterialTheme.typography.titleMedium, color = colors.ink)
                 Spacer(Modifier.height(2.dp))
-                Text(
-                    if (taken.isEmpty()) "拉到日 K 之后才有曲线" else "按每日收盘价算的市值",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.ink3,
-                )
+                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = colors.ink3)
             }
             Box(Modifier.width(150.dp)) {
                 Segmented(
@@ -647,41 +726,130 @@ private fun AccountTrendCard(
             }
         }
         Spacer(Modifier.height(10.dp))
-        if (taken.isEmpty()) {
+
+        if (taken.size < 2) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "还没拿到这只账户的日 K。",
+                    if (trend.isEmpty()) "还没拿到这只账户的日 K。" else "日 K 只有一天，画不出曲线。",
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.ink3,
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = onRetry) { Text("重新拉", fontSize = 14.sp, color = colors.brandInk) }
             }
-        } else {
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(
-                    Fmt.yuan(last?.value ?: 0L),
-                    style = MoneyStyle.copy(fontSize = 22.sp, fontWeight = FontWeight.SemiBold),
-                    color = colors.ink,
-                    maxLines = 1,
-                )
-                Spacer(Modifier.width(10.dp))
-                PnlLine(change, changePercent, 13)
-                Spacer(Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(2.dp))
+            return@PotCard
+        }
+
+        Row(verticalAlignment = Alignment.Bottom) {
             Text(
-                "${taken.first().day} 起 · 累计盈亏 " + (if ((last?.pnl ?: 0L) >= 0) "+" else "-") +
-                    Fmt.yuan(abs(last?.pnl ?: 0L)),
+                metricText(point, metric),
+                style = MoneyStyle.copy(fontSize = 22.sp, fontWeight = FontWeight.SemiBold),
+                color = if (metric == "value") colors.ink else lineTone,
+                maxLines = 1,
+            )
+            Spacer(Modifier.width(10.dp))
+            if (picked == null) {
+                when (metric) {
+                    "pct" -> Text(
+                        text = (if (change >= 0) "+" else "-") + "%.2f".format(abs(change) / 100.0) + "%",
+                        style = MoneyStyle.copy(fontSize = 13.sp),
+                        color = changeTone,
+                    )
+
+                    else -> Text(
+                        // PnlLine 会带上百分比，这里只想要区间金额的增量
+                        text = (if (change >= 0) "+" else "-") + Fmt.yuan(abs(change)),
+                        style = MoneyStyle.copy(fontSize = 13.sp),
+                        color = changeTone,
+                    )
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = if (picked == null) "最近 ${taken.size} 个交易日" else point?.day.orEmpty(),
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.ink3,
             )
-            Spacer(Modifier.height(8.dp))
-            LineChart(
-                values = taken.map { it.value },
-                color = tone,
-                baseline = taken.first().value,
-                height = 132.dp,
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = when {
+                picked != null -> "松手回到最新"
+                metric == "value" -> "区间 " + (if (change >= 0) "+" else "-") +
+                    Fmt.yuan(abs(change)) + "（" + (if (changePercent >= 0) "+" else "-") +
+                    "%.2f".format(abs(changePercent)) + "%）"
+
+                else -> "期末累计盈亏 " + (if ((last?.pnl ?: 0L) >= 0) "+" else "-") +
+                    Fmt.yuan(abs(last?.pnl ?: 0L)) + "（" + (if ((last?.pnl ?: 0L) >= 0) "+" else "-") +
+                    "%.2f".format(abs(last?.pnlPercent ?: 0.0)) + "%）"
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.ink3,
+        )
+        Spacer(Modifier.height(8.dp))
+        LineChart(
+            values = series,
+            color = lineTone,
+            baseline = baseline,
+            selected = picked,
+            onPick = { picked = it },
+            height = 148.dp,
+            fill = metric == "value",
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(taken.first().day, style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+            Spacer(Modifier.weight(1f))
+            Text(
+                if (picked == null) "按住看某一天" else "左右拖动看变化",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.ink3,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(taken.last().day, style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+        }
+        Spacer(Modifier.height(10.dp))
+        MiniTabs(
+            options = listOf("value" to "市值", "pnl" to "盈亏", "pct" to "收益率"),
+            selected = metric,
+            onSelect = {
+                metric = it
+                picked = null
+            },
+        )
+    }
+}
+
+/** 曲线当前指示的那个数：市值给金额，盈亏带正负号，收益率给百分比。 */
+private fun metricText(point: StockMath.TrendPoint?, metric: String): String {
+    if (point == null) return "—"
+    return when (metric) {
+        "pnl" -> (if (point.pnl >= 0) "+" else "-") + Fmt.yuan(abs(point.pnl))
+        "pct" -> (if (point.pnlPercent >= 0) "+" else "-") + "%.2f".format(abs(point.pnlPercent)) + "%"
+        else -> Fmt.yuan(point.value)
+    }
+}
+
+/** 卡里用的小切换，比 Segmented 轻，不抢标题的视觉重量。 */
+@Composable
+private fun MiniTabs(
+    options: List<Pair<String, String>>,
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    val colors = LocalPotColors.current
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        options.forEach { (value, label) ->
+            val active = value == selected
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                color = if (active) colors.brandInk else colors.ink3,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (active) colors.brandTint else Color.Transparent)
+                    .clickable { onSelect(value) }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
             )
         }
     }

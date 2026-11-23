@@ -200,6 +200,20 @@ object StockMath {
         }
     }
 
+    /**
+     * N 日简单均线（收盘价口径），前 N-1 天给 null —— 均线还没满，不该画。
+     * K 线图上的 MA5 / MA20 就是它。
+     */
+    fun movingAverage(closes: List<Long>, window: Int): List<Long?> {
+        if (window <= 0) return closes.map { null }
+        var sum = 0L
+        return closes.mapIndexed { index, close ->
+            sum += close
+            if (index >= window) sum -= closes[index - window]
+            if (index >= window - 1) sum / window else null
+        }
+    }
+
     private data class Position(
         val shares: Long,
         val costE4: Long,

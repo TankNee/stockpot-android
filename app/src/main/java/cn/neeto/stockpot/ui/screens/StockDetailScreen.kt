@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -187,37 +188,11 @@ fun StockDetailScreen(
                             tone = tone,
                         )
 
-                        else -> {
-                            if (dayCandles.isEmpty()) {
-                                Text(
-                                    "日 K 还没下载下来，点右上角刷新试试。",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = colors.ink3,
-                                )
-                            } else {
-                                CandleChart(candles = dayCandles, height = 172.dp)
-                                Spacer(Modifier.height(6.dp))
-                                Row(Modifier.fillMaxWidth()) {
-                                    Text(
-                                        dayCandles.first().day,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = colors.ink3,
-                                    )
-                                    Spacer(Modifier.weight(1f))
-                                    Text(
-                                        "最近 ${dayCandles.size} 个交易日 · 前复权",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = colors.ink3,
-                                    )
-                                    Spacer(Modifier.weight(1f))
-                                    Text(
-                                        dayCandles.last().day,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = colors.ink3,
-                                    )
-                                }
-                            }
-                        }
+                        else -> DayCandleBlock(
+                            candles = dayCandles,
+                            picked = picked,
+                            onPick = { picked = it },
+                        )
                     }
                 }
             }
@@ -393,6 +368,89 @@ private fun MinuteBlock(
         Text(intToTime(points.first().label), style = MaterialTheme.typography.labelSmall, color = colors.ink3)
         Spacer(Modifier.weight(1f))
         Text(intToTime(points.last().label), style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+    }
+}
+
+/** 日 K 那块：拖动看某一根的开高低收，默认停在最后一根。 */
+@Composable
+private fun DayCandleBlock(
+    candles: List<Candle>,
+    picked: Int?,
+    onPick: (Int?) -> Unit,
+) {
+    val colors = LocalPotColors.current
+    if (candles.isEmpty()) {
+        Text(
+            "日 K 还没下载下来，点右上角刷新试试。",
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.ink3,
+        )
+        return
+    }
+    val focus = picked?.coerceIn(0, candles.lastIndex) ?: candles.lastIndex
+    val candle = candles[focus]
+    val prevClose = candles.getOrNull(focus - 1)?.closeE4 ?: candle.openE4
+    val dayChange = if (prevClose > 0) (candle.closeE4 - prevClose) * 100.0 / prevClose else 0.0
+    val tone = when {
+        candle.closeE4 > prevClose -> colors.expense
+        candle.closeE4 < prevClose -> colors.income
+        else -> colors.ink3
+    }
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(candle.day, style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = (if (dayChange >= 0) "+" else "-") + "%.2f".format(abs(dayChange)) + "%",
+            fontSize = 12.sp,
+            color = tone,
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            if (picked == null) "按住看某一根" else "松手回到最新",
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.ink3,
+        )
+    }
+    Spacer(Modifier.height(6.dp))
+    Row(Modifier.fillMaxWidth()) {
+        CandleCell("开", candle.openE4, colors.ink2)
+        CandleCell("高", candle.highE4, colors.expense)
+        CandleCell("低", candle.lowE4, colors.income)
+        CandleCell("收", candle.closeE4, tone)
+    }
+    Spacer(Modifier.height(8.dp))
+    CandleChart(
+        candles = candles,
+        height = 176.dp,
+        selected = picked,
+        onPick = onPick,
+    )
+    Spacer(Modifier.height(6.dp))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(candles.first().day, style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+        Spacer(Modifier.weight(1f))
+        Text(
+            "MA5 · MA20 · 前复权 ${candles.size} 根",
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.ink3,
+        )
+        Spacer(Modifier.weight(1f))
+        Text(candles.last().day, style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+    }
+}
+
+@Composable
+private fun RowScope.CandleCell(
+    label: String,
+    priceE4: Long,
+    tone: androidx.compose.ui.graphics.Color,
+) {
+    val colors = LocalPotColors.current
+    Column(Modifier.weight(1f)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+        Spacer(Modifier.height(2.dp))
+        Text(StockCode.priceText(priceE4), style = MoneyStyle.copy(fontSize = 13.sp), color = tone)
     }
 }
 

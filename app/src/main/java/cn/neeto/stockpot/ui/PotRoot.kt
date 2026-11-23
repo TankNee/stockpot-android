@@ -446,6 +446,7 @@ fun PotRoot(
                             ledger = ledger,
                             quotes = quotes,
                             rates = rates,
+                            candles = candles,
                             busy = quoteBusy,
                             note = quoteNote,
                             onBack = { popOverlay() },

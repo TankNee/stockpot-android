@@ -3,6 +3,8 @@ package cn.neeto.stockpot.ui.components
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.neeto.stockpot.core.data.DayTotal
 import cn.neeto.stockpot.core.data.Fmt
+import cn.neeto.stockpot.core.data.StockMath
 import cn.neeto.stockpot.core.model.Candle
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import kotlin.math.ceil
@@ -373,8 +376,37 @@ private fun CalendarCell(
 /* ------------------------------ 股票曲线 ------------------------------ */
 
 /**
- * 折线图，分时和资产走势共用。`baseline` 画一条虚线当参照（昨收 / 期初资产），
- * `onPick` 把手指点到的下标传回去，外面拿它显示这一点的值。
+ * 按住选一个下标，左右拖动可以一直看，抬手回 null。
+ *
+ * 用 awaitEachGesture 而不是 detectTapGestures：单点长按看不了中间那段，
+ * 而看盘的时候手指是要拖着走的。下滑动会跟列表冲突，所以跟手时 consume 掉。
+ */
+private fun Modifier.pickIndex(count: Int, onPick: ((Int?) -> Unit)?): Modifier {
+    if (onPick == null || count < 2) return this
+    return this.pointerInput(count) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            fun at(x: Float): Int {
+                val ratio = (x / size.width).coerceIn(0f, 1f)
+                return (ratio * count).toInt().coerceIn(0, count - 1)
+            }
+            onPick(at(down.position.x))
+            val id = down.id
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == id } ?: break
+                if (!change.pressed) break
+                onPick(at(change.position.x))
+                change.consume()
+            }
+            onPick(null)
+        }
+    }
+}
+
+/**
+ * 折线图，分时、资产走势、盈亏曲线共用。`baseline` 画一条虚线当参照
+ * （昨收 / 期初资产 / 0 轴），`onPick` 把手指拖到的下标传回去，外面拿它显示这一点的值。
  */
 @Composable
 fun LineChart(
@@ -385,6 +417,8 @@ fun LineChart(
     baseline: Long? = null,
     selected: Int? = null,
     onPick: ((Int?) -> Unit)? = null,
+    /** 是否把曲线下方也填一层渐变。盈亏曲线跨 0 轴时填色会糊，可以关掉。 */
+    fill: Boolean = true,
 ) {
     val colors = LocalPotColors.current
     val bounds = remember(values, baseline) {
@@ -405,25 +439,7 @@ fun LineChart(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
-            .then(
-                if (onPick == null) {
-                    Modifier
-                } else {
-                    Modifier.pointerInput(values) {
-                        // 按住看那一点，松手回到最新：跟看盘软件的手感一致
-                        detectTapGestures(
-                            onPress = { offset ->
-                                if (values.isNotEmpty()) {
-                                    val ratio = (offset.x / size.width).coerceIn(0f, 1f)
-                                    onPick((ratio * (values.size - 1)).toInt().coerceIn(0, values.size - 1))
-                                }
-                                tryAwaitRelease()
-                                onPick(null)
-                            },
-                        )
-                    }
-                },
-            ),
+            .pickIndex(values.size, onPick),
     ) {
         if (values.size < 2) return@Canvas
         val (low, high) = bounds
@@ -454,16 +470,18 @@ fun LineChart(
         values.forEachIndexed { index, value ->
             if (index == 0) line.moveTo(xOf(0), yOf(value)) else line.lineTo(xOf(index), yOf(value))
         }
-        val area = androidx.compose.ui.graphics.Path().apply {
-            addPath(line)
-            lineTo(xOf(values.lastIndex), bottom)
-            lineTo(xOf(0), bottom)
-            close()
+        if (fill) {
+            val area = androidx.compose.ui.graphics.Path().apply {
+                addPath(line)
+                lineTo(xOf(values.lastIndex), bottom)
+                lineTo(xOf(0), bottom)
+                close()
+            }
+            drawPath(
+                path = area,
+                brush = androidx.compose.ui.graphics.Brush.verticalGradient(gradient, startY = top, endY = bottom),
+            )
         }
-        drawPath(
-            path = area,
-            brush = androidx.compose.ui.graphics.Brush.verticalGradient(gradient, startY = top, endY = bottom),
-        )
         drawPath(
             path = line,
             color = color,
@@ -486,12 +504,18 @@ fun LineChart(
     }
 }
 
-/** 日 K：上影线 + 实体。涨红跌绿，跟国内看盘的习惯一致。 */
+/**
+ * 日 K：上影线 + 实体，叠 MA5 / MA20 两条均线。涨红跌绿，跟国内看盘的习惯一致。
+ * `onPick` 传回手指拖着的那根，外侧显示当日开高低收。
+ */
 @Composable
 fun CandleChart(
     candles: List<Candle>,
     modifier: Modifier = Modifier,
     height: androidx.compose.ui.unit.Dp = 168.dp,
+    selected: Int? = null,
+    onPick: ((Int?) -> Unit)? = null,
+    showMa: Boolean = true,
 ) {
     val colors = LocalPotColors.current
     val bounds = remember(candles) {
@@ -501,8 +525,19 @@ fun CandleChart(
             low to (if (high > low) high else low + 1)
         }
     }
+    val ma5 = remember(candles) {
+        if (showMa) StockMath.movingAverage(candles.map { it.closeE4 }, 5) else emptyList()
+    }
+    val ma20 = remember(candles) {
+        if (showMa) StockMath.movingAverage(candles.map { it.closeE4 }, 20) else emptyList()
+    }
 
-    Canvas(modifier = modifier.fillMaxWidth().height(height)) {
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .pickIndex(candles.size, onPick),
+    ) {
         if (candles.isEmpty()) return@Canvas
         val (low, high) = bounds
         val top = 6.dp.toPx()
@@ -530,6 +565,36 @@ fun CandleChart(
                 color = tone,
                 topLeft = Offset(centerX - bodyWidth / 2f, bodyTop),
                 size = Size(bodyWidth, bodyHeight),
+            )
+        }
+
+        // 均线画在 K 上面：先有蜡烛的实体，再走细线，不然会被影线盖得像断续的
+        fun drawMa(values: List<Long?>, tone: Color) {
+            if (values.isEmpty()) return
+            val path = androidx.compose.ui.graphics.Path()
+            values.forEachIndexed { index, value ->
+                if (value == null) return@forEachIndexed
+                val x = slot * index + slot / 2f
+                if (path.isEmpty) path.moveTo(x, yOf(value)) else path.lineTo(x, yOf(value))
+            }
+            drawPath(path, tone, style = Stroke(width = 1.1.dp.toPx()))
+        }
+        drawMa(ma5, colors.brand.copy(alpha = 0.85f))
+        drawMa(ma20, colors.ink3.copy(alpha = 0.65f))
+
+        val focus = selected?.coerceIn(0, candles.lastIndex)
+        if (focus != null) {
+            val candle = candles[focus]
+            val x = slot * focus + slot / 2f
+            val dash = androidx.compose.ui.graphics.PathEffect
+                .dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx()))
+            drawLine(colors.ink3.copy(alpha = 0.55f), Offset(x, top), Offset(x, bottom), 1.dp.toPx(), pathEffect = dash)
+            drawLine(
+                colors.ink3.copy(alpha = 0.4f),
+                Offset(0f, yOf(candle.closeE4)),
+                Offset(size.width, yOf(candle.closeE4)),
+                1.dp.toPx(),
+                pathEffect = dash,
             )
         }
     }
@@ -576,5 +641,8 @@ fun Sparkline(
                 join = androidx.compose.ui.graphics.StrokeJoin.Round,
             ),
         )
+        // 最新的点标出来，一眼能看出曲线停在哪儿
+        val lastX = (size.width - 2.dp.toPx()).coerceAtLeast(0f)
+        drawCircle(color, radius = 2.4.dp.toPx(), center = Offset(lastX, yOf(values.last())))
     }
 }

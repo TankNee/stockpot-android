@@ -177,8 +177,16 @@ class StockTest {
     }
 
     @Test
-    fun `行情代码从 id 推，手敲 hk 前缀也不出错`() {
-        assertEquals("hk00700", QuoteClient.wireCode(Stock("hk00700", "hk00700", "", "hk")))
+    fun `均线前 N 天为空，之后是收盘均价`() {
+        val closes = listOf(1L, 2L, 3L, 4L, 5L)
+        assertEquals(listOf(null, null, 2L, 3L, 4L), StockMath.movingAverage(closes, 3))
+        // 数据不够一个窗口就全是 null，不要拿半截数据凑一条线
+        assertEquals(listOf(null, null, null, null, null), StockMath.movingAverage(closes, 9))
+        assertTrue(StockMath.movingAverage(emptyList(), 5).isEmpty())
+    }
+
+    @Test
+    fun `行情代码从 id 推，手敲 hk 前缀也不出错`() {        assertEquals("hk00700", QuoteClient.wireCode(Stock("hk00700", "hk00700", "", "hk")))
         assertEquals("hk00700", QuoteClient.wireCode(Stock("hk00700", "00700", "", "hk")))
         assertEquals("usAAPL", QuoteClient.wireCode(Stock("usaapl", "usAAPL", "", "us")))
         assertEquals("sh600396", QuoteClient.wireCode(Stock("sh600396", "600396", "", "a")))
