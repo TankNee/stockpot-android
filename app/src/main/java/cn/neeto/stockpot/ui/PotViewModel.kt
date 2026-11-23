@@ -280,6 +280,14 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setTheme(theme: String) = settings.setTheme(theme)
 
+    /* --------------------------- 标题 / 备注整理 --------------------------- */
+
+    /** 批量对调标题和备注；只改文本，不动金额与分类。 */
+    fun swapTitles(ids: Set<String>) = store.update { LedgerOps.swapTitles(it, ids) }
+
+    /** 记下「标题整理」里开着的那几个关键词。 */
+    fun setSwapWords(words: Set<String>) = settings.setSwapWords(words)
+
     fun today(): String = Fmt.today()
 
     /** 退到后台时把内存里的账本立刻落盘，不等防抖。 */

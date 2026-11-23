@@ -106,6 +106,7 @@ import cn.neeto.stockpot.ui.screens.SettingsScreen
 import cn.neeto.stockpot.ui.screens.StockAccountScreen
 import cn.neeto.stockpot.ui.screens.StockDetailScreen
 import cn.neeto.stockpot.ui.screens.StocksScreen
+import cn.neeto.stockpot.ui.screens.TitleSwapScreen
 import cn.neeto.stockpot.ui.screens.WalletEditorScreen
 import cn.neeto.stockpot.ui.screens.WalletKindScreen
 import cn.neeto.stockpot.ui.theme.LocalPotColors
@@ -134,6 +135,7 @@ private const val PROJECT_PREFIX = "project/"
 private const val ROUTE_WALLET_EDIT = "wallet-edit"
 private const val ROUTE_WALLET_KIND = "wallet-kind"
 private const val ROUTE_STOCKS = "stocks"
+private const val ROUTE_TITLE_SWAP = "title-swap"
 private const val STOCK_ACC_PREFIX = "stock-acc/"
 private const val STOCK_DETAIL_PREFIX = "stock/"
 
@@ -150,6 +152,7 @@ private fun routeOrder(route: String): Int = when {
     route.startsWith(STOCK_DETAIL_PREFIX) -> 96
     route.startsWith(STOCK_ACC_PREFIX) -> 95
     route == ROUTE_STOCKS -> 94
+    route == ROUTE_TITLE_SWAP -> 91
     route == ROUTE_PROJECTS || route == ROUTE_IMPORT -> 90
     else -> tabIndex(route)
 }
@@ -158,7 +161,7 @@ private fun isOverlay(route: String): Boolean =
     route == ROUTE_IMPORT || route == ROUTE_PROJECTS || route.startsWith(PROJECT_PREFIX) ||
         route == ROUTE_WALLET_EDIT || route == ROUTE_WALLET_KIND ||
         route == ROUTE_STOCKS || route.startsWith(STOCK_ACC_PREFIX) ||
-        route.startsWith(STOCK_DETAIL_PREFIX)
+        route.startsWith(STOCK_DETAIL_PREFIX) || route == ROUTE_TITLE_SWAP
 
 /** tab 访问轨迹，用来接管返回键：去哪儿的顺序都记着，返回就一步步退。 */
 private const val TRAIL_SEP = "|"
@@ -176,6 +179,7 @@ fun PotRoot(
 ) {
     val colors = LocalPotColors.current
     val ledger by vm.ledger.collectAsStateWithLifecycle()
+    val prefs by vm.prefs.collectAsStateWithLifecycle()
     val quotes by vm.quotes.collectAsStateWithLifecycle()
     val quoteBusy by vm.quoteBusy.collectAsStateWithLifecycle()
     val quoteNote by vm.quoteNote.collectAsStateWithLifecycle()
@@ -440,6 +444,7 @@ fun PotRoot(
                                 vm = vm,
                                 onToast = { toast = it },
                                 onOpenImport = { openOverlay(ROUTE_IMPORT) },
+                                onOpenTitleSwap = { openOverlay(ROUTE_TITLE_SWAP) },
                             )
 
                             current == ROUTE_PROJECTS -> ProjectsScreen(
@@ -449,6 +454,26 @@ fun PotRoot(
                                 onCreate = { name, note, start, end ->
                                     vm.createProject(name, note, start, end)
                                     toast = "项目已创建"
+                                },
+                            )
+
+                            current == ROUTE_TITLE_SWAP -> TitleSwapScreen(
+                                ledger = ledger,
+                                words = prefs.swapWords,
+                                onToggleRule = { rule ->
+                                    // 一条规则带好几个词，开关就整组一起加减
+                                    val on = rule.words.any { it in prefs.swapWords }
+                                    val next = if (on) {
+                                        prefs.swapWords - rule.words.toSet()
+                                    } else {
+                                        prefs.swapWords + rule.words
+                                    }
+                                    vm.setSwapWords(next)
+                                },
+                                onBack = { popOverlay() },
+                                onSwap = { ids ->
+                                    vm.swapTitles(ids)
+                                    toast = "已交换 ${ids.size} 条"
                                 },
                             )
 

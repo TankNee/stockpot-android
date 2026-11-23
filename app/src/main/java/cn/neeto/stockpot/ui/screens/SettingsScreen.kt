@@ -78,6 +78,7 @@ fun SettingsScreen(
     vm: PotViewModel,
     onToast: (String) -> Unit,
     onOpenImport: () -> Unit,
+    onOpenTitleSwap: () -> Unit,
 ) {
     val colors = LocalPotColors.current
     val context = LocalContext.current
@@ -178,6 +179,19 @@ fun SettingsScreen(
                     title = "关键词规则",
                     subtitle = "${ledger.rules.size} 条 · 导入时最长命中的规则胜出",
                     onClick = { showRules = true },
+                )
+            }
+        }
+
+        item {
+            PotCard(padding = PaddingValues(0.dp)) {
+                Column(Modifier.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 4.dp)) {
+                    SectionTitle("显示")
+                }
+                SettingsRow(
+                    title = "条目标题整理",
+                    subtitle = titleSwapHint(prefs.swapWords.size),
+                    onClick = onOpenTitleSwap,
                 )
             }
         }
@@ -322,6 +336,10 @@ fun SettingsScreen(
         )
     }
 }
+
+/** 设置页那一行的小字：把「现在开了几条规则」说清楚，不用点进去也知道有没有开。 */
+private fun titleSwapHint(wordCount: Int): String =
+    if (wordCount == 0) "已全部关闭 · 美团、淘宝闪购这类条目的标题可以换回来" else "扫描并交换标题与备注 · ${wordCount} 个关键词已启用"
 
 @Composable
 private fun SettingsRow(

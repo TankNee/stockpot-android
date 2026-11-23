@@ -78,6 +78,19 @@ object LedgerOps {
     fun deleteEntry(ledger: Ledger, id: String): Ledger =
         ledger.copy(entries = ledger.entries.filterNot { it.id == id })
 
+    /**
+     * 批量把标题和备注对调。只碰这两个字段，所以不需要重排、也不会影响合计；
+     * 备注是空的跳过（换过去等于把原标题弄丢）。
+     */
+    fun swapTitles(ledger: Ledger, ids: Set<String>): Ledger {
+        if (ids.isEmpty()) return ledger
+        return ledger.copy(
+            entries = ledger.entries.map { entry ->
+                if (entry.id in ids) TitleSwap.swapped(entry) else entry
+            },
+        )
+    }
+
     private val entryOrder: Comparator<Entry> =
         compareByDescending<Entry> { it.date }
             .thenByDescending { it.time }
