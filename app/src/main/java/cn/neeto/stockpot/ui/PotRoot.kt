@@ -21,11 +21,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,6 +37,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -81,6 +84,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -237,6 +241,9 @@ fun PotRoot(
                 source: NestedScrollSource,
             ): Offset {
                 if (consumed.y == 0f) return Offset.Zero
+                // 只记 tab 页的进度。叠加页的顶栏反正已经藏起来了，
+                // 记下来会在下次进来时被当成"当前状态"，又冒出一次先撑开再收。
+                if (isOverlay(routeNow)) return Offset.Zero
                 val key = routeNow
                 val now = collapses[key] ?: 0f
                 val next = (now - consumed.y / collapsePx).coerceIn(0f, 1f)
@@ -345,8 +352,10 @@ fun PotRoot(
                 subtitle = subtitle,
                 // 顶栏用未选中的线条版：旁边就是 24sp 的半粗标题，图标得轻一点才不抢字
                 icon = activeTab.icon,
-                // 进度用 lambda 交进去，只让顶栏自己重组合，不牵动整页
-                collapse = { collapses[routeNow] ?: 0f },
+                // 进度用 lambda 交进去，只让顶栏自己重组合，不牵动整页。
+                // 叠加页自己没有收起进度，要沿用进去之前那个 tab 的——
+                // 否则从已经滚上去的资产页点进股票时，顶栏会先"弹开"到展开态再收，那一下最扎眼。
+                collapse = { collapses[routeNow] ?: collapses[lastTab] ?: 0f },
                 hidden = overlay,
             )
             // 底栏不占布局，浮在内容上面：列表可以滚到胶囊背后，
@@ -364,24 +373,19 @@ fun PotRoot(
                         val forward = routeOrder(targetState) >= routeOrder(initialState)
                         val enter = slideInHorizontally(
                             animationSpec = tween(240, easing = FastOutSlowInEasing),
-                        ) { width -> if (forward) width / 8 else -width / 8 } + fadeIn(tween(180))
+                        ) { width -> if (forward) width / 8 else -width / 8 } + fadeIn(tween(240))
                         val exit = slideOutHorizontally(
                             animationSpec = tween(240, easing = FastOutSlowInEasing),
-                        ) { width -> if (forward) -width / 10 else width / 10 } + fadeOut(tween(150))
+                        ) { width -> if (forward) -width / 10 else width / 10 } + fadeOut(tween(200))
                         enter togetherWith exit
                     },
                     label = "tab",
                 ) { current ->
                     stateHolder.SaveableStateProvider(current) {
-                        // 叠加页自己带返回头（EditorBar 那种），顶栏让位；
-                        // 它原来靠顶栏撑着状态栏，现在自己补上这段留白。
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .then(
-                                    if (isOverlay(current)) Modifier.statusBarsPadding() else Modifier,
-                                ),
-                        ) {
+                        // 叠加页自己带返回头（EditorBar 那种），顶栏让位。
+                        // 但顶栏只塌到状态栏那一条线为止，正好替叠加页占住状态栏的高度，
+                        // 所以这里不用再补 statusBarsPadding——转场里内容也就不会先窜上去再落回来。
+                        Box(Modifier.fillMaxSize()) {
                             when {
                             current == "overview" -> OverviewScreen(
                                 ledger = ledger,
@@ -741,16 +745,16 @@ private fun PotHeader(
     hidden: Boolean,
 ) {
     val colors = LocalPotColors.current
-    // 叠加页自己带返回头，这条就让位；180ms 收掉，不是"啪"地消失
+    // 进叠加页时顶栏让位到底，但 statusBarsPadding 还在，所以最后仍留状态栏那一截，
+    // 叠加页的内容正好从这条线开始（它自己不用再补一条，否则就是双份留白）。
+    val barTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    // 和页面转场同一个 240ms、同一条缓动曲线：顶栏往下收 vs 新页面横向滑进来，
+    // 两者同频才不会互相打架（之前一个是 180 一个是 240，一快一慢看着就别扭）。
     val hide by animateFloatAsState(
         targetValue = if (hidden) 1f else 0f,
-        animationSpec = tween(180),
+        animationSpec = tween(240, easing = FastOutSlowInEasing),
         label = "headerHide",
     )
-    if (hide > 0.995f) {
-        Spacer(Modifier.fillMaxWidth())
-        return
-    }
     // 滚动给的是逐帧的原始进度，弹簧太硬会像"啪"一下贴上去，看着突兀；
     // 这里两层磨：软一点的临界阻尼弹簧（不带过冲）+ 把 0..1 重映射成 smoothstep，
     // 起手和收尾都缓，尺寸只会一点点挪，不会在两端硬拐。
@@ -760,18 +764,32 @@ private fun PotHeader(
         label = "headerCollapse",
     )
     val c = raw * raw * (3f - 2f * raw)
-    val height = (HeaderExpandedHeight * (1f - c) + HeaderCollapsedHeight * c) * (1f - hide)
+    val idle = HeaderExpandedHeight * (1f - c) + HeaderCollapsedHeight * c
+    // 这里只管标题那一段；状态栏的那一截由外面的 statusBarsPadding 撑着，
+    // 所以 hide 到 1 时总高正好等于 barTop，和下面那个 Spacer 分支接得上，不会跳。
+    val height = idle * (1f - hide)
+    // 文字比高度退得早（1.2 倍速度归零）：高度还没压到裁字的程度它就已经淡没了，
+    // 不会出现"半截字被裁掉一半"的突兀感。
+    val textFade = (1f - hide * 1.2f).coerceIn(0f, 1f)
     // 24sp 到 16sp：收起来之后跟其他页面的小标题一个量级，不喧宾夺主
     val titleSize = 24f + (16f - 24f) * c
     val markSize = (24f + (18f - 24f) * c).dp
     // 说明那行比标题退得稍快一点（1.6 倍进度归零），免得小字糊在中间半透明
-    val noteAlpha = ((1f - c * 1.6f) * (1f - hide)).coerceIn(0f, 1f)
+    val noteAlpha = ((1f - c * 1.6f) * textFade).coerceIn(0f, 1f)
+    // 提前返回要放在所有 remember / 动画状态之后：放在前面会跳过后面那几个状态槽，
+    // 下次再恢复动画时槽位对不上，收起进度会突然归零。
+    if (hide > 0.995f) {
+        // 收完之后只留下状态栏那一截，替叠加页撑着，免得内容钻进状态栏
+        Spacer(Modifier.fillMaxWidth().height(barTop))
+        return
+    }
     Column(
         Modifier
             .fillMaxWidth()
             .background(colors.canvas)
             .statusBarsPadding()
             .height(height)
+            .clipToBounds()
             .padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
     ) {
         Spacer(Modifier.weight(1f))
@@ -779,6 +797,13 @@ private fun PotHeader(
         Crossfade(
             targetState = title to icon,
             animationSpec = tween(170),
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    // 让位时是往上淡走，不是原地被削掉半个字
+                    alpha = textFade
+                    translationY = -10.dp.toPx() * hide
+                },
             label = "headerTitle",
         ) { (text, mark) ->
             Row(
