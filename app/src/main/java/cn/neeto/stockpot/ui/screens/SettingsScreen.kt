@@ -25,7 +25,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,6 +64,9 @@ import cn.neeto.stockpot.ui.components.PotCard
 import cn.neeto.stockpot.ui.components.SectionTitle
 import cn.neeto.stockpot.ui.components.Segmented
 import cn.neeto.stockpot.ui.components.SheetGrabber
+import cn.neeto.stockpot.ui.components.PotConfirmSheet
+import cn.neeto.stockpot.ui.components.PotSheet
+import cn.neeto.stockpot.ui.components.SheetActions
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -363,14 +365,12 @@ private fun ConfirmDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    val colors = LocalPotColors.current
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = colors.panel,
-        title = { Text(title, style = MaterialTheme.typography.titleMedium, color = colors.ink) },
-        text = { Text(body, style = MaterialTheme.typography.bodySmall, color = colors.ink2, lineHeight = 19.sp) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(confirmText, color = colors.danger) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = colors.ink2) } },
+    PotConfirmSheet(
+        title = title,
+        body = body,
+        confirmText = confirmText,
+        onDismiss = onDismiss,
+        onConfirm = onConfirm,
     )
 }
 
@@ -515,30 +515,18 @@ private fun CategoryManagerSheet(
 
     val removing = deleting
     if (removing != null) {
-        AlertDialog(
-            onDismissRequest = { deleting = null },
-            containerColor = colors.panel,
-            title = { Text("删除「${removing.name}」？", style = MaterialTheme.typography.titleMedium, color = colors.ink) },
-            text = {
-                Text(
-                    if (removing.parent.isEmpty()) {
-                        "分组下的子分类会一起删除，相关账目会归到「其他」，账目本身不会丢。"
-                    } else {
-                        "相关账目会归到「${removing.parent}」，账目本身不会丢。"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.ink2,
-                    lineHeight = 19.sp,
-                )
+        PotConfirmSheet(
+            title = "删除「${removing.name}」？",
+            body = if (removing.parent.isEmpty()) {
+                "分组下的子分类会一起删除，相关账目会归到「其他」，账目本身不会丢。"
+            } else {
+                "相关账目会归到「${removing.parent}」，账目本身不会丢。"
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    onDelete(removing)
-                    deleting = null
-                }) { Text("删除", color = colors.danger) }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleting = null }) { Text("取消", color = colors.ink2) }
+            confirmText = "删除",
+            onDismiss = { deleting = null },
+            onConfirm = {
+                onDelete(removing)
+                deleting = null
             },
         )
     }
@@ -564,18 +552,14 @@ fun CategoryEditorDialog(
     }
     val groups = ledger.categories.filter { it.parent.isEmpty() && it.name != existing?.name }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = colors.panel,
-        title = {
-            Text(
-                if (existing == null) "新建分类" else "编辑分类",
-                style = MaterialTheme.typography.titleMedium,
-                color = colors.ink,
-            )
-        },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
+    PotSheet(onDismiss = onDismiss) {
+        Text(
+            if (existing == null) "新建分类" else "编辑分类",
+            style = MaterialTheme.typography.titleLarge,
+            color = colors.ink,
+        )
+        Spacer(Modifier.height(12.dp))
+        Column(Modifier.fillMaxWidth()) {
                 TextField(
                     value = name,
                     onValueChange = { name = it },
@@ -615,17 +599,14 @@ fun CategoryEditorDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = name.isNotBlank(),
-                onClick = { onSave(name.trim(), parent, kind) },
-            ) {
-                Text("保存", color = if (name.isNotBlank()) colors.brand else colors.ink3)
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = colors.ink2) } },
-    )
+        SheetActions(
+            confirmText = "保存",
+            enabled = name.isNotBlank(),
+            danger = false,
+            onConfirm = { onSave(name.trim(), parent, kind) },
+            onCancel = onDismiss,
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

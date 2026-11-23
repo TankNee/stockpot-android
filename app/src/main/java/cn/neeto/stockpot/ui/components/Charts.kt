@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.neeto.stockpot.core.data.DayTotal
 import cn.neeto.stockpot.core.data.Fmt
+import cn.neeto.stockpot.core.model.Candle
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import kotlin.math.ceil
 import kotlin.math.max
@@ -366,5 +367,214 @@ private fun CalendarCell(
                 maxLines = 1,
             )
         }
+    }
+}
+
+/* ------------------------------ 股票曲线 ------------------------------ */
+
+/**
+ * 折线图，分时和资产走势共用。`baseline` 画一条虚线当参照（昨收 / 期初资产），
+ * `onPick` 把手指点到的下标传回去，外面拿它显示这一点的值。
+ */
+@Composable
+fun LineChart(
+    values: List<Long>,
+    color: Color,
+    modifier: Modifier = Modifier,
+    height: androidx.compose.ui.unit.Dp = 150.dp,
+    baseline: Long? = null,
+    selected: Int? = null,
+    onPick: ((Int?) -> Unit)? = null,
+) {
+    val colors = LocalPotColors.current
+    val bounds = remember(values, baseline) {
+        var low = values.minOrNull() ?: 0L
+        var high = values.maxOrNull() ?: 0L
+        if (baseline != null) {
+            low = minOf(low, baseline)
+            high = maxOf(high, baseline)
+        }
+        if (high <= low) high = low + 1
+        low to high
+    }
+    val gradient = remember(color) {
+        listOf(color.copy(alpha = 0.20f), color.copy(alpha = 0f))
+    }
+
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .then(
+                if (onPick == null) {
+                    Modifier
+                } else {
+                    Modifier.pointerInput(values) {
+                        // 按住看那一点，松手回到最新：跟看盘软件的手感一致
+                        detectTapGestures(
+                            onPress = { offset ->
+                                if (values.isNotEmpty()) {
+                                    val ratio = (offset.x / size.width).coerceIn(0f, 1f)
+                                    onPick((ratio * (values.size - 1)).toInt().coerceIn(0, values.size - 1))
+                                }
+                                tryAwaitRelease()
+                                onPick(null)
+                            },
+                        )
+                    }
+                },
+            ),
+    ) {
+        if (values.size < 2) return@Canvas
+        val (low, high) = bounds
+        val top = 6.dp.toPx()
+        val bottom = size.height - 4.dp.toPx()
+        val span = (high - low).toFloat().coerceAtLeast(1f)
+
+        fun xOf(index: Int): Float = size.width * index / (values.size - 1).toFloat()
+        fun yOf(value: Long): Float = bottom - (value - low) / span * (bottom - top)
+
+        for (fraction in listOf(0f, 0.5f, 1f)) {
+            val y = top + (bottom - top) * fraction
+            drawLine(colors.line.copy(alpha = 0.7f), Offset(0f, y), Offset(size.width, y), 1f)
+        }
+        if (baseline != null) {
+            val y = yOf(baseline)
+            drawLine(
+                color = colors.lineStrong,
+                start = Offset(0f, y),
+                end = Offset(size.width, y),
+                strokeWidth = 1.dp.toPx(),
+                pathEffect = androidx.compose.ui.graphics.PathEffect
+                    .dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx())),
+            )
+        }
+
+        val line = androidx.compose.ui.graphics.Path()
+        values.forEachIndexed { index, value ->
+            if (index == 0) line.moveTo(xOf(0), yOf(value)) else line.lineTo(xOf(index), yOf(value))
+        }
+        val area = androidx.compose.ui.graphics.Path().apply {
+            addPath(line)
+            lineTo(xOf(values.lastIndex), bottom)
+            lineTo(xOf(0), bottom)
+            close()
+        }
+        drawPath(
+            path = area,
+            brush = androidx.compose.ui.graphics.Brush.verticalGradient(gradient, startY = top, endY = bottom),
+        )
+        drawPath(
+            path = line,
+            color = color,
+            style = Stroke(
+                width = 1.9.dp.toPx(),
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                join = androidx.compose.ui.graphics.StrokeJoin.Round,
+            ),
+        )
+
+        // 最后一个点永远标出来；手指按着的时候标手指那个点
+        val focus = selected?.coerceIn(0, values.lastIndex) ?: values.lastIndex
+        val fx = xOf(focus)
+        val fy = yOf(values[focus])
+        if (selected != null) {
+            drawLine(colors.ink3.copy(alpha = 0.5f), Offset(fx, top), Offset(fx, bottom), 1.dp.toPx())
+        }
+        drawCircle(color, radius = 3.2.dp.toPx(), center = Offset(fx, fy))
+        drawCircle(colors.panel, radius = 1.4.dp.toPx(), center = Offset(fx, fy))
+    }
+}
+
+/** 日 K：上影线 + 实体。涨红跌绿，跟国内看盘的习惯一致。 */
+@Composable
+fun CandleChart(
+    candles: List<Candle>,
+    modifier: Modifier = Modifier,
+    height: androidx.compose.ui.unit.Dp = 168.dp,
+) {
+    val colors = LocalPotColors.current
+    val bounds = remember(candles) {
+        if (candles.isEmpty()) 0L to 1L else {
+            val low = candles.minOf { it.lowE4 }
+            val high = candles.maxOf { it.highE4 }
+            low to (if (high > low) high else low + 1)
+        }
+    }
+
+    Canvas(modifier = modifier.fillMaxWidth().height(height)) {
+        if (candles.isEmpty()) return@Canvas
+        val (low, high) = bounds
+        val top = 6.dp.toPx()
+        val bottom = size.height - 4.dp.toPx()
+        val span = (high - low).toFloat().coerceAtLeast(1f)
+        fun yOf(value: Long): Float = bottom - (value - low) / span * (bottom - top)
+
+        for (fraction in listOf(0f, 0.5f, 1f)) {
+            val y = top + (bottom - top) * fraction
+            drawLine(colors.line.copy(alpha = 0.7f), Offset(0f, y), Offset(size.width, y), 1f)
+        }
+
+        val slot = size.width / candles.size
+        val bodyWidth = (slot * 0.62f).coerceAtLeast(1.5.dp.toPx())
+        candles.forEachIndexed { index, candle ->
+            val centerX = slot * index + slot / 2f
+            val up = candle.closeE4 >= candle.openE4
+            val tone = if (up) colors.expense else colors.income
+            drawLine(tone, Offset(centerX, yOf(candle.highE4)), Offset(centerX, yOf(candle.lowE4)), 1.dp.toPx())
+            val openY = yOf(candle.openE4)
+            val closeY = yOf(candle.closeE4)
+            val bodyTop = minOf(openY, closeY)
+            val bodyHeight = maxOf(1.dp.toPx(), kotlin.math.abs(closeY - openY))
+            drawRect(
+                color = tone,
+                topLeft = Offset(centerX - bodyWidth / 2f, bodyTop),
+                size = Size(bodyWidth, bodyHeight),
+            )
+        }
+    }
+}
+
+/** 首页用的迷你走势：没有坐标轴，只有一条线和一层渐变。 */
+@Composable
+fun Sparkline(
+    values: List<Long>,
+    color: Color,
+    modifier: Modifier = Modifier,
+    height: androidx.compose.ui.unit.Dp = 42.dp,
+) {
+    val gradient = remember(color) {
+        listOf(color.copy(alpha = 0.24f), color.copy(alpha = 0f))
+    }
+    Canvas(modifier = modifier.fillMaxWidth().height(height)) {
+        if (values.size < 2) return@Canvas
+        val low = values.minOrNull() ?: 0L
+        val high = values.maxOrNull() ?: 0L
+        val span = (high - low).toFloat().coerceAtLeast(1f)
+        val top = 3.dp.toPx()
+        val bottom = size.height - 3.dp.toPx()
+        fun xOf(index: Int): Float = size.width * index / (values.size - 1).toFloat()
+        fun yOf(value: Long): Float = bottom - (value - low) / span * (bottom - top)
+
+        val line = androidx.compose.ui.graphics.Path()
+        values.forEachIndexed { index, value ->
+            if (index == 0) line.moveTo(0f, yOf(value)) else line.lineTo(xOf(index), yOf(value))
+        }
+        val area = androidx.compose.ui.graphics.Path().apply {
+            addPath(line)
+            lineTo(size.width, bottom)
+            lineTo(0f, bottom)
+            close()
+        }
+        drawPath(area, androidx.compose.ui.graphics.Brush.verticalGradient(gradient, startY = top, endY = bottom))
+        drawPath(
+            line,
+            color,
+            style = Stroke(
+                width = 1.6.dp.toPx(),
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                join = androidx.compose.ui.graphics.StrokeJoin.Round,
+            ),
+        )
     }
 }

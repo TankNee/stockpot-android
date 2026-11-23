@@ -29,9 +29,8 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -68,6 +67,8 @@ import cn.neeto.stockpot.ui.components.Chip
 import cn.neeto.stockpot.ui.components.Segmented
 import cn.neeto.stockpot.ui.components.SheetGrabber
 import cn.neeto.stockpot.ui.components.SheetHeader
+import cn.neeto.stockpot.ui.components.PotSheet
+import cn.neeto.stockpot.ui.components.SheetActions
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
 
@@ -379,19 +380,26 @@ fun EntryEditorSheet(
 
     if (showDatePicker) {
         val pickerState = rememberDatePickerState(initialSelectedDateMillis = Fmt.epochMillis(date))
-        DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
-            confirmButton = {
-                TextButton(onClick = {
+        val sheetColors = LocalPotColors.current
+        PotSheet(onDismiss = { showDatePicker = false }) {
+            Text("选择日期", style = MaterialTheme.typography.titleLarge, color = sheetColors.ink)
+            Spacer(Modifier.height(6.dp))
+            DatePicker(
+                state = pickerState,
+                title = null,
+                headline = null,
+                showModeToggle = false,
+                colors = DatePickerDefaults.colors(containerColor = sheetColors.panel),
+            )
+            SheetActions(
+                confirmText = "确定",
+                danger = false,
+                onConfirm = {
                     pickerState.selectedDateMillis?.let { date = Fmt.fromEpochMillis(it) }
                     showDatePicker = false
-                }) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) { Text("取消") }
-            },
-        ) {
-            DatePicker(state = pickerState, title = null, headline = null, showModeToggle = false)
+                },
+                onCancel = { showDatePicker = false },
+            )
         }
     }
 }
@@ -453,12 +461,10 @@ private fun AccountPickerDialog(
     }
     val canCreate = query.isNotBlank() && options.none { it.equals(query.trim(), ignoreCase = true) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = colors.panel,
-        title = { Text("选择账户", style = MaterialTheme.typography.titleMedium, color = colors.ink) },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
+    PotSheet(onDismiss = onDismiss) {
+        Text("选择账户", style = MaterialTheme.typography.titleLarge, color = colors.ink)
+        Spacer(Modifier.height(12.dp))
+        Column(Modifier.fillMaxWidth()) {
                 TextField(
                     value = query,
                     onValueChange = { query = it },
@@ -539,11 +545,7 @@ private fun AccountPickerDialog(
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭", fontSize = 15.sp, color = colors.ink2) }
-        },
-    )
+        }
 }
 
 @Composable
@@ -602,12 +604,10 @@ fun CategoryPickerDialog(
             }
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = colors.panel,
-        title = { Text("选择分类", style = MaterialTheme.typography.titleMedium, color = colors.ink) },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
+    PotSheet(onDismiss = onDismiss) {
+        Text("选择分类", style = MaterialTheme.typography.titleLarge, color = colors.ink)
+        Spacer(Modifier.height(12.dp))
+        Column(Modifier.fillMaxWidth()) {
                 TextField(
                     value = query,
                     onValueChange = { query = it },
@@ -699,9 +699,5 @@ fun CategoryPickerDialog(
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭", color = colors.ink2) }
-        },
-    )
+        }
 }

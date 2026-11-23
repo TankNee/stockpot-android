@@ -1,5 +1,6 @@
 package cn.neeto.stockpot.core.data
 
+import cn.neeto.stockpot.core.model.Candle
 import cn.neeto.stockpot.core.model.Holding
 import cn.neeto.stockpot.core.model.Quote
 import cn.neeto.stockpot.core.model.Rates
@@ -141,4 +142,68 @@ object StockMath {
             }
             .sortedByDescending { it.value }
     }
+
+    /**
+     * 账户总资产走势：按持仓股数 × 当日收盘价（拿不到就退回成本价）逐日累加。
+     * 只画到有 K 线的那些天，`limit` 是保留最后多少根。
+     */
+    data class TrendPoint(val day: String, val value: Long, val cost: Long) {
+        val pnl: Long get() = value - cost
+        val pnlPercent: Double get() = if (cost <= 0) 0.0 else pnl * 100.0 / cost
+    }
+
+    fun trend(
+        accounts: List<StockAccount>,
+        stocks: Map<String, Stock>,
+        candles: Map<String, List<Candle>>,
+        rates: Rates = Rates(),
+        limit: Int = 60,
+    ): List<TrendPoint> {
+        // 先把持仓摊平成「股数 × 成本 × 汇率 × 这条票的日线」，后面按天走一遍游标
+        val positions = accounts.flatMap { account ->
+            account.entries.mapNotNull { (stockId, holding) ->
+                val stock = stocks[stockId] ?: return@mapNotNull null
+                if (holding.shares <= 0) return@mapNotNull null
+                val series = candles[stockId].orEmpty().sortedBy { it.day }
+                if (series.isEmpty()) return@mapNotNull null
+                Position(
+                    shares = holding.shares,
+                    costE4 = holding.costE4,
+                    rate = rates.toCny(stock.market),
+                    series = series.map { it.day to it.closeE4 },
+                )
+            }
+        }
+        if (positions.isEmpty()) return emptyList()
+
+        val days = positions
+            .flatMap { p -> p.series.map { it.first } }
+            .distinct()
+            .sorted()
+            .takeLast(limit)
+        if (days.isEmpty()) return emptyList()
+
+        val cursors = IntArray(positions.size) { -1 }
+        return days.map { day ->
+            var value = 0L
+            var cost = 0L
+            positions.forEachIndexed { index, position ->
+                val series = position.series
+                while (cursors[index] + 1 < series.size && series[cursors[index] + 1].first <= day) {
+                    cursors[index]++
+                }
+                val price = if (cursors[index] >= 0) series[cursors[index]].second else position.costE4
+                value += valueCents(position.shares, price, position.rate)
+                cost += valueCents(position.shares, position.costE4, position.rate)
+            }
+            TrendPoint(day = day, value = value, cost = cost)
+        }
+    }
+
+    private data class Position(
+        val shares: Long,
+        val costE4: Long,
+        val rate: Double,
+        val series: List<Pair<String, Long>>,
+    )
 }

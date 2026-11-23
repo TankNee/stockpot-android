@@ -12,7 +12,9 @@ import cn.neeto.stockpot.core.importer.ImportEngine
 import cn.neeto.stockpot.core.importer.ImportOutcome
 import cn.neeto.stockpot.core.importer.ImportPreview
 import cn.neeto.stockpot.core.importer.ParsedBill
+import cn.neeto.stockpot.core.model.Candle
 import cn.neeto.stockpot.core.model.CategoryDef
+import cn.neeto.stockpot.core.model.CurvePoint
 import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Holding
 import cn.neeto.stockpot.core.model.Ledger
@@ -25,6 +27,9 @@ import cn.neeto.stockpot.core.model.StockAccount
 import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.core.stock.QuoteClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -182,6 +187,48 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
             if (account.id == accountId) LedgerOps.removeHolding(account, stockId) else account
         }
         ledger.copy(stocks = LedgerOps.pruneStocks(ledger.stocks, accounts), stockAccounts = accounts)
+    }
+
+    /* ------------------------------ 分时 / 日 K ------------------------------ */
+
+    private val _candles = MutableStateFlow<Map<String, List<Candle>>>(emptyMap())
+    val candles: StateFlow<Map<String, List<Candle>>> = _candles
+
+    private val _minutes = MutableStateFlow<Map<String, List<CurvePoint>>>(emptyMap())
+    val minutes: StateFlow<Map<String, List<CurvePoint>>> = _minutes
+
+    /** 已经开过请求的 key，失败也不自动重试，免得滚动列表时一直打网络。手点刷新才重来。 */
+    private val chartAsked = mutableSetOf<String>()
+
+    /**
+     * 日 K 只拉一次就够用：资产走势、首页 sparkline 都读这一份缓存。
+     * `force` 是用户点刷新的时候，重新拉一遍。
+     */
+    fun ensureDaily(stocks: List<Stock>, force: Boolean = false) {
+        val targets = stocks.filter { stock ->
+            force || chartAsked.add("day:" + stock.id)
+        }
+        if (targets.isEmpty()) return
+        viewModelScope.launch {
+            val fetched = coroutineScope {
+                targets.map { stock ->
+                    async {
+                        stock.id to runCatching { QuoteClient.fetchDaily(stock) }.getOrDefault(emptyList())
+                    }
+                }.awaitAll()
+            }
+            val hit = fetched.filter { it.second.isNotEmpty() }.toMap()
+            if (hit.isNotEmpty()) _candles.value = _candles.value + hit
+        }
+    }
+
+    /** 分时是当天的，进详情页拉一次；手点刷新会强制重拉。 */
+    fun ensureMinute(stock: Stock, force: Boolean = false) {
+        if (!force && !chartAsked.add("min:" + stock.id)) return
+        viewModelScope.launch {
+            val points = runCatching { QuoteClient.fetchMinute(stock) }.getOrDefault(emptyList())
+            if (points.isNotEmpty()) _minutes.value = _minutes.value + (stock.id to points)
+        }
     }
 
     /* ------------------------------ 数据 ------------------------------ */

@@ -6,13 +6,19 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,11 +26,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -372,5 +381,154 @@ fun StatBlock(
             Spacer(Modifier.height(3.dp))
             Text(hint, style = MaterialTheme.typography.labelSmall, color = colors.ink3, maxLines = 1)
         }
+    }
+}
+
+/* ------------------------------ 底部弹层 ------------------------------ */
+
+/**
+ * 全应用统一的底部弹层。原来这些小表单用的是 AlertDialog，键盘弹起来会把内容顶掉一半，
+ * 也不符合手机上「从下面推上来」的习惯。现在统一走这里，边框、留白、键盘都一致。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PotSheet(
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val colors = LocalPotColors.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.panel,
+        contentColor = colors.ink,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        dragHandle = { SheetGrabber() },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                // 键盘和手势条取最大值，别叠两层留白
+                .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+                .padding(horizontal = 18.dp)
+                .padding(bottom = 16.dp),
+            content = content,
+        )
+    }
+}
+
+/** 弹层底部的一对按钮，比对话框里的文字按钮好点得多。 */
+@Composable
+fun SheetActions(
+    confirmText: String,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+    enabled: Boolean = true,
+    danger: Boolean = false,
+) {
+    val colors = LocalPotColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(14.dp))
+                .background(colors.panel2)
+                .clickable { onCancel() }
+                .padding(vertical = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("取消", fontSize = 15.sp, color = colors.ink2)
+        }
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(14.dp))
+                .background(
+                    when {
+                        !enabled -> colors.panel2
+                        danger -> colors.danger
+                        else -> colors.brand
+                    },
+                )
+                .clickable(enabled = enabled) { onConfirm() }
+                .padding(vertical = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = confirmText,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = if (enabled) colors.onBrand else colors.ink3,
+            )
+        }
+    }
+}
+
+/** 确认类弹层：删除、清空、重置都走这一个，不用每个页面再写一遍对话框。 */
+@Composable
+fun PotConfirmSheet(
+    title: String,
+    body: String,
+    confirmText: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+    danger: Boolean = true,
+) {
+    val colors = LocalPotColors.current
+    PotSheet(onDismiss = onDismiss) {
+        Text(title, style = MaterialTheme.typography.titleLarge, color = colors.ink)
+        Spacer(Modifier.height(6.dp))
+        Text(body, style = MaterialTheme.typography.bodySmall, color = colors.ink3, lineHeight = 20.sp)
+        SheetActions(
+            confirmText = confirmText,
+            onConfirm = onConfirm,
+            onCancel = onDismiss,
+            danger = danger,
+        )
+    }
+}
+
+/** 弹层里的一行标签 + 输入框，替换掉对话框里那种紧凑的 TextField。 */
+@Composable
+fun SheetField(
+    label: String,
+    value: String,
+    placeholder: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    keyboardType: androidx.compose.ui.text.input.KeyboardType =
+        androidx.compose.ui.text.input.KeyboardType.Text,
+) {
+    val colors = LocalPotColors.current
+    Column(modifier) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+        Spacer(Modifier.height(5.dp))
+        androidx.compose.foundation.text.BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(colors.panel2)
+                .padding(horizontal = 14.dp, vertical = 13.dp),
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.ink),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(colors.brand),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = keyboardType),
+            decorationBox = { inner ->
+                Box {
+                    if (value.isEmpty()) {
+                        Text(placeholder, style = MaterialTheme.typography.bodySmall, color = colors.ink3)
+                    }
+                    inner()
+                }
+            },
+        )
     }
 }

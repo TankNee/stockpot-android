@@ -1,7 +1,9 @@
 package cn.neeto.stockpot.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,7 +26,6 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,9 +33,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.data.StockCode
 import cn.neeto.stockpot.core.data.StockMath
+import cn.neeto.stockpot.core.model.Candle
 import cn.neeto.stockpot.core.model.Holding
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Market
@@ -59,8 +63,14 @@ import cn.neeto.stockpot.core.model.Stock
 import cn.neeto.stockpot.core.model.StockAccount
 import cn.neeto.stockpot.ui.components.EmptyState
 import cn.neeto.stockpot.ui.components.Hairline
+import cn.neeto.stockpot.ui.components.LineChart
 import cn.neeto.stockpot.ui.components.PotCard
+import cn.neeto.stockpot.ui.components.PotConfirmSheet
+import cn.neeto.stockpot.ui.components.PotSheet
 import cn.neeto.stockpot.ui.components.SectionTitle
+import cn.neeto.stockpot.ui.components.Segmented
+import cn.neeto.stockpot.ui.components.SheetActions
+import cn.neeto.stockpot.ui.components.SheetField
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
 import kotlin.math.abs
@@ -69,7 +79,7 @@ import kotlin.math.roundToLong
 /* ------------------------------ 价格小工具 ------------------------------ */
 
 @Composable
-private fun PnlText(cents: Long, fontSize: Int = 14, withSign: Boolean = true) {
+internal fun PnlText(cents: Long, fontSize: Int = 14, withSign: Boolean = true) {
     val colors = LocalPotColors.current
     val tone = when {
         cents > 0 -> colors.expense
@@ -85,10 +95,29 @@ private fun PnlText(cents: Long, fontSize: Int = 14, withSign: Boolean = true) {
     )
 }
 
+/** 金额和百分比一起给：「+¥1,234.00 (+5.67%)」。 */
+@Composable
+internal fun PnlLine(cents: Long, percent: Double, fontSize: Int = 14) {
+    val colors = LocalPotColors.current
+    val tone = when {
+        cents > 0 -> colors.expense
+        cents < 0 -> colors.income
+        else -> colors.ink3
+    }
+    val sign = if (cents > 0) "+" else if (cents < 0) "-" else ""
+    val pctSign = if (percent > 0) "+" else if (percent < 0) "-" else ""
+    Text(
+        text = "$sign${Fmt.yuan(abs(cents))}（$pctSign${"%.2f".format(abs(percent))}%）",
+        style = MoneyStyle.copy(fontSize = fontSize.sp),
+        color = tone,
+        maxLines = 1,
+    )
+}
+
 /* ------------------------------ 股票总览 ------------------------------ */
 
 @Composable
-private fun RefreshButton(busy: Boolean, onClick: () -> Unit) {
+internal fun RefreshButton(busy: Boolean, onClick: () -> Unit) {
     val colors = LocalPotColors.current
     IconButton(onClick = onClick, modifier = Modifier.size(40.dp), enabled = !busy) {
         if (busy) {
@@ -281,7 +310,7 @@ fun StocksScreen(
     }
 
     if (adding) {
-        NameDialog(
+        NameSheet(
             title = "新建股票账户",
             placeholder = "比如 华泰证券",
             onDismiss = { adding = false },
@@ -295,12 +324,14 @@ fun StocksScreen(
 
 /* ------------------------------ 单个账户 ------------------------------ */
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun StockAccountScreen(
     ledger: Ledger,
     accountId: String,
     quotes: Map<String, Quote>,
     rates: Rates,
+    candles: Map<String, List<Candle>>,
     busy: Boolean,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
@@ -308,6 +339,8 @@ fun StockAccountScreen(
     onRemoveHolding: (String) -> Unit,
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
+    onOpenStock: (String) -> Unit,
+    onLoadDaily: () -> Unit,
 ) {
     val colors = LocalPotColors.current
     val account = ledger.stockAccounts.firstOrNull { it.id == accountId }
@@ -315,6 +348,11 @@ fun StockAccountScreen(
     var adding by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var span by rememberSaveable { mutableStateOf("1m") }
+
+    LaunchedEffect(accountId, account?.entries) {
+        if (account != null) onLoadDaily()
+    }
 
     if (account == null) {
         Column(Modifier.fillMaxWidth()) {
@@ -329,6 +367,15 @@ fun StockAccountScreen(
     }
     val lines = remember(account, ledger.stocks, quotes, rates) {
         StockMath.lines(account, ledger.stocks, quotes, rates)
+    }
+    val trend = remember(account, ledger.stocks, candles, rates) {
+        StockMath.trend(
+            accounts = listOf(account),
+            stocks = ledger.stocks.associateBy { it.id },
+            candles = candles,
+            rates = rates,
+            limit = 250,
+        )
     }
     val editingHolding: Pair<Stock, Holding>? = editingStockId?.let { id ->
         val stock = ledger.stocks.firstOrNull { it.id == id }
@@ -350,24 +397,44 @@ fun StockAccountScreen(
         ) {
             item(key = "hero") {
                 PotCard {
+                    Text("市值", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        Fmt.yuan(totals.marketValue),
+                        style = MoneyStyle.copy(fontSize = 26.sp, fontWeight = FontWeight.SemiBold),
+                        color = colors.ink,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.height(12.dp))
                     Row(Modifier.fillMaxWidth()) {
                         Column(Modifier.weight(1f)) {
-                            Text("市值", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
-                            Spacer(Modifier.height(3.dp))
-                            Text(Fmt.yuan(totals.marketValue), style = MoneyStyle.copy(fontSize = 20.sp), color = colors.ink)
-                        }
-                        Column(Modifier.weight(1f)) {
                             Text("今日", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
-                            Spacer(Modifier.height(3.dp))
-                            PnlText(totals.dayPnl, 16)
+                            Spacer(Modifier.height(4.dp))
+                            PnlText(totals.dayPnl, 15)
                         }
-                        Column(Modifier.weight(1f)) {
+                        Column(Modifier.weight(1.4f)) {
                             Text("持仓盈亏", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
-                            Spacer(Modifier.height(3.dp))
-                            PnlText(totals.pnl, 16)
+                            Spacer(Modifier.height(4.dp))
+                            PnlLine(totals.pnl, totals.pnlPercent, 14)
                         }
                     }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "成本 ${Fmt.yuan(totals.cost)} · ${totals.holdingCount} 个持仓" +
+                            if (totals.quotedCount < totals.holdingCount) " · 部分标的暂无行情" else "",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.ink3,
+                    )
                 }
+            }
+
+            item(key = "trend") {
+                AccountTrendCard(
+                    trend = trend,
+                    span = span,
+                    onSpan = { span = it },
+                    onRetry = onRefresh,
+                )
             }
 
             item(key = "head") {
@@ -402,7 +469,10 @@ fun StockAccountScreen(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
                             .background(colors.panel)
-                            .clickable { editingStockId = line.stock.id }
+                            .combinedClickable(
+                                onClick = { onOpenStock(line.stock.id) },
+                                onLongClick = { editingStockId = line.stock.id },
+                            )
                             .padding(start = 14.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -480,7 +550,7 @@ fun StockAccountScreen(
     }
 
     if (adding || editingHolding != null) {
-        HoldingEditorDialog(
+        HoldingEditorSheet(
             accountName = account.name,
             existing = editingHolding,
             quotes = quotes,
@@ -501,7 +571,7 @@ fun StockAccountScreen(
     }
 
     if (renaming) {
-        NameDialog(
+        NameSheet(
             title = "重命名账户",
             placeholder = account.name,
             initial = account.name,
@@ -514,35 +584,113 @@ fun StockAccountScreen(
     }
 
     if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            containerColor = colors.panel,
-            title = { Text("删除「${account.name}」？", style = MaterialTheme.typography.titleMedium, color = colors.ink) },
-            text = {
-                Text(
-                    "这个账户下的持仓记录会一起删掉，账本里的流水不受影响。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.ink2,
-                    lineHeight = 20.sp,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = false
-                    onDelete()
-                }) { Text("删除", fontSize = 15.sp, color = colors.danger) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text("取消", fontSize = 15.sp, color = colors.ink2) }
+        PotConfirmSheet(
+            title = "删除「${account.name}」？",
+            body = "这个账户下的持仓记录会一起删掉，账本里的流水不受影响。",
+            confirmText = "删除",
+            onDismiss = { confirmDelete = false },
+            onConfirm = {
+                confirmDelete = false
+                onDelete()
             },
         )
+    }
+}
+
+/* ------------------------------ 账户走势 ------------------------------ */
+
+/** 券商账户的总资产曲线：按持仓 × 每日收盘价算，区间盈亏给绝对值和百分比。 */
+@Composable
+private fun AccountTrendCard(
+    trend: List<StockMath.TrendPoint>,
+    span: String,
+    onSpan: (String) -> Unit,
+    onRetry: () -> Unit,
+) {
+    val colors = LocalPotColors.current
+    val taken = remember(trend, span) {
+        trend.takeLast(
+            when (span) {
+                "3m" -> 66
+                "1y" -> 250
+                else -> 22
+            },
+        )
+    }
+    val first = taken.firstOrNull()
+    val last = taken.lastOrNull()
+    val change = if (first != null && last != null) last.value - first.value else 0L
+    val changePercent = if (first == null || first.value <= 0) 0.0 else change * 100.0 / first.value
+    val tone = when {
+        change > 0 -> colors.expense
+        change < 0 -> colors.income
+        else -> colors.ink3
+    }
+
+    PotCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("账户走势", style = MaterialTheme.typography.titleMedium, color = colors.ink)
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    if (taken.isEmpty()) "拉到日 K 之后才有曲线" else "按每日收盘价算的市值",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.ink3,
+                )
+            }
+            Box(Modifier.width(150.dp)) {
+                Segmented(
+                    options = listOf("1m" to "1月", "3m" to "3月", "1y" to "1年"),
+                    selected = span,
+                    onSelect = onSpan,
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        if (taken.isEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "还没拿到这只账户的日 K。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.ink3,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onRetry) { Text("重新拉", fontSize = 14.sp, color = colors.brandInk) }
+            }
+        } else {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    Fmt.yuan(last?.value ?: 0L),
+                    style = MoneyStyle.copy(fontSize = 22.sp, fontWeight = FontWeight.SemiBold),
+                    color = colors.ink,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.width(10.dp))
+                PnlLine(change, changePercent, 13)
+                Spacer(Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "${taken.first().day} 起 · 累计盈亏 " + (if ((last?.pnl ?: 0L) >= 0) "+" else "-") +
+                    Fmt.yuan(abs(last?.pnl ?: 0L)),
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.ink3,
+            )
+            Spacer(Modifier.height(8.dp))
+            LineChart(
+                values = taken.map { it.value },
+                color = tone,
+                baseline = taken.first().value,
+                height = 132.dp,
+            )
+        }
     }
 }
 
 /* ------------------------------ 添加 / 编辑持仓 ------------------------------ */
 
 @Composable
-private fun HoldingEditorDialog(
+internal fun HoldingEditorSheet(
     accountName: String,
     existing: Pair<Stock, Holding>?,
     quotes: Map<String, Quote>,
@@ -558,134 +706,116 @@ private fun HoldingEditorDialog(
 
     val market = remember(code) { StockCode.guessMarket(code) }
     val quote = quotes[StockCode.stockIdFor(code, market)] ?: existing?.first?.let { quotes[it.id] }
+    val canSave = code.isNotBlank() && (sharesText.toLongOrNull() ?: 0L) > 0
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = colors.panel,
-        title = {
-            Text(
-                if (existing == null) "添加持仓" else "编辑持仓",
-                style = MaterialTheme.typography.titleMedium,
-                color = colors.ink,
+    PotSheet(onDismiss = onDismiss) {
+        Text(
+            if (existing == null) "添加持仓" else "编辑持仓",
+            style = MaterialTheme.typography.titleLarge,
+            color = colors.ink,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            "$accountName · 成本价和股数自己维护，行情自动更新",
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.ink3,
+        )
+        Spacer(Modifier.height(14.dp))
+
+        SheetField(
+            label = "代码",
+            value = code,
+            placeholder = "600396 / 00700 / AAPL",
+            onValueChange = { input -> code = input.uppercase().filter { it.isLetterOrDigit() } },
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "市场：${Market.label(market)}" + (quote?.let { " · 现价 ${StockCode.priceText(it.priceE4)}" } ?: " · 暂未查到行情"),
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.ink3,
+        )
+        Spacer(Modifier.height(12.dp))
+
+        SheetField(
+            label = "名称",
+            value = name,
+            placeholder = "留空则用行情里的名字",
+            onValueChange = { name = it },
+        )
+        Spacer(Modifier.height(12.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SheetField(
+                label = "成本价",
+                value = costText,
+                placeholder = "每股成本",
+                modifier = Modifier.weight(1f),
+                keyboardType = KeyboardType.Decimal,
+                onValueChange = { input -> costText = input.filter { it.isDigit() || it == '.' } },
             )
-        },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
-                LabeledInput(label = "代码", value = code, placeholder = "600396 / 00700 / AAPL") {
-                    code = it.uppercase().filter { ch -> ch.isLetterOrDigit() }
-                }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "市场：${Market.label(market)}" + (quote?.let { " · 现价 ${StockCode.priceText(it.priceE4)}" } ?: ""),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.ink3,
-                )
-                Spacer(Modifier.height(10.dp))
-                LabeledInput(label = "名称", value = name, placeholder = "留空则用行情里的名字") { name = it }
-                Spacer(Modifier.height(10.dp))
-                LabeledInput(
-                    label = "成本价",
-                    value = costText,
-                    placeholder = "每股成本，元",
-                    keyboardType = KeyboardType.Decimal,
-                ) { input -> costText = input.filter { it.isDigit() || it == '.' } }
-                Spacer(Modifier.height(10.dp))
-                LabeledInput(
-                    label = "股数",
-                    value = sharesText,
-                    placeholder = "持有多少股",
-                    keyboardType = KeyboardType.Number,
-                ) { input -> sharesText = input.filter { it.isDigit() } }
-                Spacer(Modifier.height(10.dp))
-                val cost = StockCode.parsePriceE4(costText) ?: existing?.second?.costE4 ?: 0L
-                val shares = sharesText.toLongOrNull() ?: 0L
-                val value = StockMath.valueCents(shares, quote?.priceE4?.takeIf { it > 0 } ?: cost)
-                Text(
-                    "市值约 ${Fmt.yuan(value)}" + if (quote != null) " · 现价 ${StockCode.priceText(quote.priceE4)}" else " · 暂无行情，按成本算",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.ink3,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = code.isNotBlank() && sharesText.toLongOrNull() != null,
-                onClick = {
-                    val cost = StockCode.parsePriceE4(costText) ?: 0L
-                    val shares = sharesText.toLongOrNull() ?: 0L
-                    val id = StockCode.stockIdFor(code, market)
-                    val stock = Stock(
-                        id = id,
-                        code = code.trim(),
-                        name = name.trim(),
-                        market = market,
-                        updatedAt = Fmt.stamp(),
-                    )
-                    // 改了代码就先把旧票从账户里摘掉，不然会变成两条持仓
-                    if (existing != null && existing.first.id != id) {
-                        onDelete(existing.first.id)
-                    }
-                    onSave(stock, cost, shares)
-                },
-            ) {
-                Text(
-                    "保存",
-                    fontSize = 15.sp,
-                    color = if (code.isNotBlank() && sharesText.toLongOrNull() != null) colors.brand else colors.ink3,
-                )
-            }
-        },
-        dismissButton = {
-            Row {
-                if (existing != null) {
-                    TextButton(onClick = { onDelete(existing.first.id) }) {
-                        Text("删除", fontSize = 15.sp, color = colors.danger)
-                    }
-                }
-                TextButton(onClick = onDismiss) { Text("取消", fontSize = 15.sp, color = colors.ink2) }
-            }
-        },
-    )
-}
+            SheetField(
+                label = "股数",
+                value = sharesText,
+                placeholder = "持有股数",
+                modifier = Modifier.weight(1f),
+                keyboardType = KeyboardType.Number,
+                onValueChange = { input -> sharesText = input.filter { it.isDigit() } },
+            )
+        }
 
-@Composable
-private fun LabeledInput(
-    label: String,
-    value: String,
-    placeholder: String,
-    keyboardType: KeyboardType = KeyboardType.Text,
-    onChange: (String) -> Unit,
-) {
-    val colors = LocalPotColors.current
-    Column {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = colors.ink3)
-        Spacer(Modifier.height(4.dp))
-        BasicTextField(
-            value = value,
-            onValueChange = onChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(colors.panel2)
-                .padding(horizontal = 12.dp, vertical = 11.dp),
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.ink),
-            cursorBrush = SolidColor(colors.brand),
-            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-            decorationBox = { inner ->
-                Box {
-                    if (value.isEmpty()) {
-                        Text(placeholder, style = MaterialTheme.typography.bodySmall, color = colors.ink3)
-                    }
-                    inner()
+        Spacer(Modifier.height(10.dp))
+        val cost = StockCode.parsePriceE4(costText) ?: existing?.second?.costE4 ?: 0L
+        val shares = sharesText.toLongOrNull() ?: 0L
+        val value = StockMath.valueCents(shares, quote?.priceE4?.takeIf { it > 0 } ?: cost)
+        Text(
+            "市值约 ${Fmt.yuan(value)}" + if (quote != null) " · 成本 ${Fmt.yuan(StockMath.valueCents(shares, cost))}" else " · 无行情时按成本算",
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.ink3,
+        )
+
+        if (existing != null) {
+            Spacer(Modifier.height(6.dp))
+            TextButton(
+                onClick = { onDelete(existing.first.id) },
+                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp),
+            ) {
+                Icon(
+                    Icons.Outlined.DeleteOutline,
+                    contentDescription = null,
+                    tint = colors.danger,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("删除这只持仓", fontSize = 14.sp, color = colors.danger)
+            }
+        }
+
+        SheetActions(
+            confirmText = "保存",
+            enabled = canSave,
+            danger = false,
+            onConfirm = {
+                val stock = Stock(
+                    id = StockCode.stockIdFor(code, market),
+                    code = code.trim(),
+                    name = name.trim(),
+                    market = market,
+                    updatedAt = Fmt.stamp(),
+                )
+                // 改了代码就先把旧票从账户里摘掉，不然会变成两条持仓
+                if (existing != null && existing.first.id != stock.id) {
+                    onDelete(existing.first.id)
                 }
+                onSave(stock, cost, shares)
             },
+            onCancel = onDismiss,
         )
     }
 }
 
+/** 新建 / 重命名账户这种只要一个名字的场合。 */
 @Composable
-private fun NameDialog(
+internal fun NameSheet(
     title: String,
     placeholder: String,
     initial: String = "",
@@ -694,20 +824,21 @@ private fun NameDialog(
 ) {
     val colors = LocalPotColors.current
     var name by remember { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = colors.panel,
-        title = { Text(title, style = MaterialTheme.typography.titleMedium, color = colors.ink) },
-        text = {
-            LabeledInput(label = "名称", value = name, placeholder = placeholder) { name = it }
-        },
-        confirmButton = {
-            TextButton(enabled = name.isNotBlank(), onClick = { onConfirm(name.trim()) }) {
-                Text("确定", fontSize = 15.sp, color = if (name.isNotBlank()) colors.brand else colors.ink3)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消", fontSize = 15.sp, color = colors.ink2) }
-        },
-    )
+    PotSheet(onDismiss = onDismiss) {
+        Text(title, style = MaterialTheme.typography.titleLarge, color = colors.ink)
+        Spacer(Modifier.height(14.dp))
+        SheetField(
+            label = "名称",
+            value = name,
+            placeholder = placeholder,
+            onValueChange = { name = it },
+        )
+        SheetActions(
+            confirmText = "确定",
+            enabled = name.isNotBlank(),
+            danger = false,
+            onConfirm = { onConfirm(name.trim()) },
+            onCancel = onDismiss,
+        )
+    }
 }

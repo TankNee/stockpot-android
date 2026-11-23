@@ -28,9 +28,7 @@ import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -68,6 +66,9 @@ import cn.neeto.stockpot.ui.components.PotCard
 import cn.neeto.stockpot.ui.components.SectionTitle
 import cn.neeto.stockpot.ui.components.SheetGrabber
 import cn.neeto.stockpot.ui.components.SheetHeader
+import cn.neeto.stockpot.ui.components.PotConfirmSheet
+import cn.neeto.stockpot.ui.components.PotSheet
+import cn.neeto.stockpot.ui.components.SheetActions
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
 
@@ -402,26 +403,15 @@ fun ProjectDetailScreen(
     }
 
     if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            containerColor = colors.panel,
-            title = { Text("删除项目？", color = colors.ink, style = MaterialTheme.typography.titleMedium) },
-            text = {
-                Text(
-                    "只会解除分组，账目一条都不会删。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.ink2,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    onDelete(project.id)
-                    confirmDelete = false
-                    onBack()
-                }) { Text("删除", color = colors.danger) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text("取消", color = colors.ink2) }
+        PotConfirmSheet(
+            title = "删除项目？",
+            body = "只会解除分组，账目一条都不会删。",
+            confirmText = "删除",
+            onDismiss = { confirmDelete = false },
+            onConfirm = {
+                onDelete(project.id)
+                confirmDelete = false
+                onBack()
             },
         )
     }
@@ -441,18 +431,14 @@ fun ProjectEditorDialog(
     var end by remember { mutableStateOf(project?.endDate ?: "") }
     var picking by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = colors.panel,
-        title = {
-            Text(
-                if (project == null) "新建项目" else "编辑项目",
-                style = MaterialTheme.typography.titleMedium,
-                color = colors.ink,
-            )
-        },
-        text = {
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+    PotSheet(onDismiss = onDismiss) {
+        Text(
+            if (project == null) "新建项目" else "编辑项目",
+            style = MaterialTheme.typography.titleLarge,
+            color = colors.ink,
+        )
+        Spacer(Modifier.height(12.dp))
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
                 DialogField("名称", name, "比如 杭州出差") { name = it }
                 Spacer(Modifier.height(10.dp))
                 DialogField("备注", note, "可留空") { note = it }
@@ -468,22 +454,14 @@ fun ProjectEditorDialog(
                     color = colors.ink3,
                 )
             }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = name.isNotBlank(),
-                onClick = { onSave(name.trim(), note.trim(), start, end) },
-            ) {
-                Text(
-                    "保存",
-                    color = if (name.isNotBlank()) colors.brand else colors.ink3,
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消", color = colors.ink2) }
-        },
-    )
+        SheetActions(
+            confirmText = "保存",
+            enabled = name.isNotBlank(),
+            danger = false,
+            onConfirm = { onSave(name.trim(), note.trim(), start, end) },
+            onCancel = onDismiss,
+        )
+    }
 
     val target = picking
     if (target != null) {
@@ -491,20 +469,26 @@ fun ProjectEditorDialog(
         val pickerState = rememberDatePickerState(
             initialSelectedDateMillis = if (initial.isEmpty()) null else Fmt.epochMillis(initial),
         )
-        DatePickerDialog(
-            onDismissRequest = { picking = null },
-            confirmButton = {
-                TextButton(onClick = {
+        PotSheet(onDismiss = { picking = null }) {
+            Text("选择日期", style = MaterialTheme.typography.titleLarge, color = colors.ink)
+            Spacer(Modifier.height(6.dp))
+            DatePicker(
+                state = pickerState,
+                title = null,
+                headline = null,
+                showModeToggle = false,
+                colors = androidx.compose.material3.DatePickerDefaults.colors(containerColor = colors.panel),
+            )
+            SheetActions(
+                confirmText = "确定",
+                danger = false,
+                onConfirm = {
                     val value = pickerState.selectedDateMillis?.let { Fmt.fromEpochMillis(it) }
                     if (target == "start") start = value.orEmpty() else end = value.orEmpty()
                     picking = null
-                }) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { picking = null }) { Text("取消") }
-            },
-        ) {
-            DatePicker(state = pickerState, title = null, headline = null, showModeToggle = false)
+                },
+                onCancel = { picking = null },
+            )
         }
     }
 }

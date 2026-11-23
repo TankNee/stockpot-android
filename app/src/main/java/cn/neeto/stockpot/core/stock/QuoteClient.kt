@@ -1,11 +1,19 @@
 package cn.neeto.stockpot.core.stock
 
+import cn.neeto.stockpot.core.model.Candle
+import cn.neeto.stockpot.core.model.CurvePoint
 import cn.neeto.stockpot.core.model.Market
 import cn.neeto.stockpot.core.model.Quote
 import cn.neeto.stockpot.core.model.Rates
 import cn.neeto.stockpot.core.model.Stock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.Charset
@@ -87,9 +95,89 @@ object QuoteClient {
 
     private fun wireSymbol(stock: Stock): String? = when (stock.market) {
         Market.HK -> "r_" + stock.id
-        Market.US -> "us" + stock.code.uppercase()
+        Market.US -> "us" + stock.id.removePrefix("us").uppercase()
         else -> stock.id.ifEmpty { null }
     }
+
+    /* ------------------------------ 分时 / 日 K ------------------------------ */
+
+    /**
+     * 当日分时。腾讯 `appstock/app/minute/query`，返回 JSON，
+     * `data.<code>.data.data` 里是 `"0930 3.42 1234 ..."` 这样的行。
+     */
+    suspend fun fetchMinute(stock: Stock): List<CurvePoint> = withContext(Dispatchers.IO) {
+        val code = wireCode(stock)
+        runCatching {
+            parseMinute(get("https://web.ifzq.gtimg.cn/appstock/app/minute/query?code=$code"), code)
+        }.getOrDefault(emptyList())
+    }
+
+    /**
+     * 日 K（前复权）。`fqkline/get` 的 `param` 是 `code,day,起,止,条数,qfq`，
+     * 起止留空就取最近 N 根。
+     */
+    suspend fun fetchDaily(stock: Stock, days: Int = 120): List<Candle> = withContext(Dispatchers.IO) {
+        val code = wireCode(stock)
+        runCatching {
+            val url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=$code,day,,,$days,qfq"
+            parseDaily(get(url), code)
+        }.getOrDefault(emptyList())
+    }
+
+    /**
+     * 分时和 K 线用的代码：港股不带 r_ 前缀，美股是 us + 大写代码。
+     * 从 id 推，别从用户输入的 code 推 —— 有人会直接敲 hk00700。
+     */
+    fun wireCode(stock: Stock): String {
+        val id = stock.id.lowercase()
+        return when {
+            id.startsWith("hk") -> "hk" + id.removePrefix("hk").padStart(5, '0')
+            id.startsWith("us") -> "us" + id.removePrefix("us").uppercase()
+            else -> id
+        }
+    }
+
+    fun parseMinute(body: String, code: String): List<CurvePoint> {
+        val rows = node(body, code)?.get("data")?.let { it as? JsonObject }
+            ?.get("data") as? JsonArray ?: return emptyList()
+        return rows.mapNotNull { row ->
+            val raw = (row as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+            val parts = raw.trim().split(' ')
+            if (parts.size < 2) return@mapNotNull null
+            val price = parts[1].toDoubleOrNull() ?: return@mapNotNull null
+            if (price <= 0.0) return@mapNotNull null
+            CurvePoint(label = parts[0], value = (price * 10_000).roundToLong())
+        }
+    }
+
+    fun parseDaily(body: String, code: String): List<Candle> {
+        val node = node(body, code) ?: return emptyList()
+        val rows = (node["qfqday"] as? JsonArray) ?: (node["day"] as? JsonArray) ?: return emptyList()
+        return rows.mapNotNull { row ->
+            val arr = row as? JsonArray ?: return@mapNotNull null
+            if (arr.size < 5) return@mapNotNull null
+            val day = (arr[0] as? JsonPrimitive)?.contentOrNull ?: return@mapNotNull null
+            val open = (arr[1] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull() ?: return@mapNotNull null
+            val close = (arr[2] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull() ?: return@mapNotNull null
+            val high = (arr[3] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull() ?: return@mapNotNull null
+            val low = (arr[4] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull() ?: return@mapNotNull null
+            if (close <= 0.0) return@mapNotNull null
+            Candle(
+                day = day,
+                openE4 = (open * 10_000).roundToLong(),
+                closeE4 = (close * 10_000).roundToLong(),
+                highE4 = (high * 10_000).roundToLong(),
+                lowE4 = (low * 10_000).roundToLong(),
+            )
+        }
+    }
+
+    /** 腾讯这两个接口都是 `{"code":0,"data":{"<code>":{...}}}`，把那一层抓出来。 */
+    private fun node(body: String, code: String): JsonObject? = runCatching {
+        val data = Json.parseToJsonElement(body).jsonObject["data"]?.jsonObject ?: return null
+        val exact = data[code] ?: data.entries.firstOrNull { it.key.equals(code, ignoreCase = true) }?.value
+        (exact as? JsonObject) ?: data.values.firstOrNull { it is JsonObject } as? JsonObject
+    }.getOrNull()
 
     private fun get(url: String, referer: String = "https://gu.qq.com/"): String {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {

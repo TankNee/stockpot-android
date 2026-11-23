@@ -55,6 +55,7 @@ import cn.neeto.stockpot.ui.components.MonthStepper
 import cn.neeto.stockpot.ui.components.PotCard
 import cn.neeto.stockpot.ui.components.SectionTitle
 import cn.neeto.stockpot.ui.components.Segmented
+import cn.neeto.stockpot.ui.components.Sparkline
 import cn.neeto.stockpot.ui.components.YearBars
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
@@ -76,6 +77,7 @@ fun OverviewScreen(
     stockPnl: Long,
     stockDayPnl: Long,
     stockAccountCount: Int,
+    stockTrend: List<Long>,
     onOpenStocks: () -> Unit,
 ) {
     val colors = LocalPotColors.current
@@ -196,6 +198,7 @@ fun OverviewScreen(
                 pnl = stockPnl,
                 dayPnl = stockDayPnl,
                 accounts = stockAccountCount,
+                trend = stockTrend,
                 onClick = onOpenStocks,
             )
         }
@@ -210,16 +213,29 @@ fun OverviewScreen(
     }
 }
 
-/** 总览里的股票入口：市值 + 今日/持仓盈亏，点进去看账户和持仓。 */
+/** 总览里的股票入口：市值、盈亏，外加最近一个月的市值走势。 */
 @Composable
 private fun StocksCard(
     value: Long,
     pnl: Long,
     dayPnl: Long,
     accounts: Int,
+    trend: List<Long>,
     onClick: () -> Unit,
 ) {
     val colors = LocalPotColors.current
+    val change = remember(trend) {
+        if (trend.size < 2) 0L else trend.last() - trend.first()
+    }
+    val changePercent = remember(trend, change) {
+        if (trend.size < 2 || trend.first() <= 0) 0.0 else change * 100.0 / trend.first()
+    }
+    val tone = when {
+        change > 0 -> colors.expense
+        change < 0 -> colors.income
+        else -> colors.brand
+    }
+
     PotCard(onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -236,7 +252,11 @@ private fun StocksCard(
                 Text("股票", style = MaterialTheme.typography.titleMedium, color = colors.ink)
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    if (accounts == 0) "建个券商账户，把持仓记进来" else "$accounts 个账户 · 市值 ${Fmt.yuan(value)}",
+                    if (accounts == 0) {
+                        "建个券商账户，把持仓记进来"
+                    } else {
+                        "$accounts 个账户 · 市值 ${Fmt.yuan(value)}"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.ink3,
                     maxLines = 1,
@@ -270,6 +290,27 @@ private fun StocksCard(
                 tint = colors.ink3,
                 modifier = Modifier.padding(start = 6.dp).size(17.dp),
             )
+        }
+
+        if (trend.size >= 2) {
+            Spacer(Modifier.height(12.dp))
+            Sparkline(values = trend, color = tone, height = 46.dp)
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "近 1 个月",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.ink3,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = (if (change >= 0) "+" else "-") + Fmt.yuan(if (change < 0) -change else change) +
+                        "（" + (if (changePercent >= 0) "+" else "-") +
+                        "%.2f".format(if (changePercent < 0) -changePercent else changePercent) + "%）",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tone,
+                )
+            }
         }
     }
 }

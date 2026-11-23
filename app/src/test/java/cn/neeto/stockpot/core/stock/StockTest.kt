@@ -2,6 +2,7 @@ package cn.neeto.stockpot.core.stock
 
 import cn.neeto.stockpot.core.data.StockCode
 import cn.neeto.stockpot.core.data.StockMath
+import cn.neeto.stockpot.core.model.Candle
 import cn.neeto.stockpot.core.model.Holding
 import cn.neeto.stockpot.core.model.Quote
 import cn.neeto.stockpot.core.model.Stock
@@ -110,5 +111,76 @@ class StockTest {
 
         assertEquals(2, totals.holdingCount)
         assertEquals(513_000L, totals.marketValue)
+    }
+
+    @Test
+    fun `分时接口解析出时间和价格`() {
+        val body = """
+            {"code":0,"msg":"","data":{"sh600396":{"data":{"data":[
+            "0930 3.40 1200 408000.00","0931 3.42 800 273600.00","1500 3.45 300 103500.00"
+            ],"date":"20261123"}}}}
+        """.trimIndent()
+        val points = QuoteClient.parseMinute(body, "sh600396")
+
+        assertEquals(3, points.size)
+        assertEquals("0930", points.first().label)
+        assertEquals(34_000L, points.first().value)
+        assertEquals(34_500L, points.last().value)
+        // 休市没数据就是空列表，不编造点
+        assertTrue(QuoteClient.parseMinute("""{"code":0,"data":{"sh600396":{"data":{"data":[]}}}}""", "sh600396").isEmpty())
+    }
+
+    @Test
+    fun `日K按前复权数组解析`() {
+        val body = """
+            {"code":0,"msg":"","data":{"sh600396":{"qfqday":[
+            ["2026-11-20","3.30","3.35","3.38","3.28","123456"],
+            ["2026-11-21","3.35","3.42","3.45","3.34","234567"]
+            ],"qt":{}}}}
+        """.trimIndent()
+        val candles = QuoteClient.parseDaily(body, "sh600396")
+
+        assertEquals(2, candles.size)
+        assertEquals("2026-11-21", candles.last().day)
+        assertEquals(33_500L, candles.last().openE4)
+        assertEquals(34_200L, candles.last().closeE4)
+        assertEquals(34_500L, candles.last().highE4)
+        assertEquals(33_400L, candles.last().lowE4)
+    }
+
+    @Test
+    fun `账户资产走势按每日收盘价累加`() {
+        val stock = Stock(id = "sh600396", code = "600396", name = "华电辽能")
+        val account = StockAccount("a1", "华泰", mapOf("sh600396" to Holding(costE4 = 30_000, shares = 1_000)))
+        val candles = mapOf(
+            "sh600396" to listOf(
+                Candle("2026-11-20", 33_000, 33_500, 33_800, 32_800),
+                Candle("2026-11-21", 33_500, 34_200, 34_500, 33_400),
+            ),
+        )
+        val trend = StockMath.trend(listOf(account), mapOf(stock.id to stock), candles)
+
+        assertEquals(2, trend.size)
+        // 1000 股 × 3.35 / 3.42
+        assertEquals(335_000L, trend.first().value)
+        assertEquals(342_000L, trend.last().value)
+        assertEquals(300_000L, trend.last().cost)
+        assertEquals(42_000L, trend.last().pnl)
+        assertEquals(14.0, trend.last().pnlPercent, 0.0001)
+    }
+
+    @Test
+    fun `没有日K时走势为空，不编造曲线`() {
+        val stock = Stock(id = "sh600396", code = "600396")
+        val account = StockAccount("a1", "华泰", mapOf("sh600396" to Holding(30_000, 1_000)))
+        assertEquals(0, StockMath.trend(listOf(account), mapOf(stock.id to stock), emptyMap()).size)
+    }
+
+    @Test
+    fun `行情代码从 id 推，手敲 hk 前缀也不出错`() {
+        assertEquals("hk00700", QuoteClient.wireCode(Stock("hk00700", "hk00700", "", "hk")))
+        assertEquals("hk00700", QuoteClient.wireCode(Stock("hk00700", "00700", "", "hk")))
+        assertEquals("usAAPL", QuoteClient.wireCode(Stock("usaapl", "usAAPL", "", "us")))
+        assertEquals("sh600396", QuoteClient.wireCode(Stock("sh600396", "600396", "", "a")))
     }
 }

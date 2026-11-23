@@ -75,6 +75,7 @@ import cn.neeto.stockpot.ui.screens.ProjectDetailScreen
 import cn.neeto.stockpot.ui.screens.ProjectsScreen
 import cn.neeto.stockpot.ui.screens.SettingsScreen
 import cn.neeto.stockpot.ui.screens.StockAccountScreen
+import cn.neeto.stockpot.ui.screens.StockDetailScreen
 import cn.neeto.stockpot.ui.screens.StocksScreen
 import cn.neeto.stockpot.ui.screens.WalletEditorScreen
 import cn.neeto.stockpot.ui.screens.WalletKindScreen
@@ -98,6 +99,7 @@ private const val ROUTE_WALLET_EDIT = "wallet-edit"
 private const val ROUTE_WALLET_KIND = "wallet-kind"
 private const val ROUTE_STOCKS = "stocks"
 private const val STOCK_ACC_PREFIX = "stock-acc/"
+private const val STOCK_DETAIL_PREFIX = "stock/"
 
 private fun tabIndex(id: String): Int = tabs.indexOfFirst { it.id == id }.let { if (it < 0) 0 else it }
 
@@ -109,6 +111,7 @@ private fun routeOrder(route: String): Int = when {
     route.startsWith(PROJECT_PREFIX) -> 100
     route == ROUTE_WALLET_EDIT -> 98
     route == ROUTE_WALLET_KIND -> 97
+    route.startsWith(STOCK_DETAIL_PREFIX) -> 96
     route.startsWith(STOCK_ACC_PREFIX) -> 95
     route == ROUTE_STOCKS -> 94
     route == ROUTE_PROJECTS || route == ROUTE_IMPORT -> 90
@@ -118,7 +121,8 @@ private fun routeOrder(route: String): Int = when {
 private fun isOverlay(route: String): Boolean =
     route == ROUTE_IMPORT || route == ROUTE_PROJECTS || route.startsWith(PROJECT_PREFIX) ||
         route == ROUTE_WALLET_EDIT || route == ROUTE_WALLET_KIND ||
-        route == ROUTE_STOCKS || route.startsWith(STOCK_ACC_PREFIX)
+        route == ROUTE_STOCKS || route.startsWith(STOCK_ACC_PREFIX) ||
+        route.startsWith(STOCK_DETAIL_PREFIX)
 
 /** tab 访问轨迹，用来接管返回键：去哪儿的顺序都记着，返回就一步步退。 */
 private const val TRAIL_SEP = "|"
@@ -140,6 +144,8 @@ fun PotRoot(
     val quoteBusy by vm.quoteBusy.collectAsStateWithLifecycle()
     val quoteNote by vm.quoteNote.collectAsStateWithLifecycle()
     val rates by vm.rates.collectAsStateWithLifecycle()
+    val candles by vm.candles.collectAsStateWithLifecycle()
+    val minutes by vm.minutes.collectAsStateWithLifecycle()
 
     var route by rememberSaveable { mutableStateOf("overview") }
     var lastTab by rememberSaveable { mutableStateOf("overview") }
@@ -168,18 +174,36 @@ fun PotRoot(
     val stockTotals = remember(ledger.stockAccounts, ledger.stocks, quotes, rates) {
         StockMath.totals(ledger.stockAccounts, ledger.stocks, quotes, rates)
     }
+    // 首页那张股票卡要画最近一个月的市值曲线，日 K 拉一次缓存在 VM 里
+    val stockTrend = remember(ledger.stockAccounts, ledger.stocks, candles, rates) {
+        StockMath.trend(
+            accounts = ledger.stockAccounts,
+            stocks = ledger.stocks.associateBy { it.id },
+            candles = candles,
+            rates = rates,
+            limit = 30,
+        )
+    }
     val subtitle = when {
         route == ROUTE_IMPORT -> "微信 / 支付宝 / iCost / 通用 CSV"
         route == ROUTE_PROJECTS -> "按一件事看花销，不改账目本身"
         route == ROUTE_WALLET_KIND -> "账户类型"
         route == ROUTE_WALLET_EDIT -> "余额自己维护，账本只记录钱的流动"
-        route == ROUTE_STOCKS || route.startsWith(STOCK_ACC_PREFIX) -> "持仓成本自己维护，行情来自腾讯"
+        route == ROUTE_STOCKS || route.startsWith(STOCK_ACC_PREFIX) || route.startsWith(STOCK_DETAIL_PREFIX) ->
+            "持仓成本自己维护，行情来自腾讯"
         else -> activeTab.hint
     }
 
     // 进到有股票的页面时顺手拉一次行情；失败就安静着，用最后的价格
     LaunchedEffect(ledger.stocks.size) {
         if (ledger.stocks.isNotEmpty()) vm.refreshQuotes(silent = true)
+    }
+
+    // 首页、股票相关的页面都需要日 K（画曲线、算走势），只拉一次，之后读缓存
+    LaunchedEffect(route, ledger.stocks.size) {
+        val stockRoute = route == "overview" || route == ROUTE_STOCKS ||
+            route.startsWith(STOCK_ACC_PREFIX) || route.startsWith(STOCK_DETAIL_PREFIX)
+        if (stockRoute && ledger.stocks.isNotEmpty()) vm.ensureDaily(ledger.stocks)
     }
 
     LaunchedEffect(undoEntry) {
@@ -332,6 +356,7 @@ fun PotRoot(
                             stockPnl = stockTotals.pnl,
                             stockDayPnl = stockTotals.dayPnl,
                             stockAccountCount = ledger.stockAccounts.size,
+                            stockTrend = stockTrend.map { it.value },
                             onOpenStocks = { openOverlay(ROUTE_STOCKS) },
                         )
 
@@ -424,7 +449,10 @@ fun PotRoot(
                             busy = quoteBusy,
                             note = quoteNote,
                             onBack = { popOverlay() },
-                            onRefresh = { vm.refreshQuotes() },
+                            onRefresh = {
+                                vm.refreshQuotes()
+                                vm.ensureDaily(ledger.stocks, force = true)
+                            },
                             onOpenAccount = { openOverlay(STOCK_ACC_PREFIX + it) },
                             onAddAccount = vm::addStockAccount,
                         )
@@ -434,9 +462,13 @@ fun PotRoot(
                             accountId = current.removePrefix(STOCK_ACC_PREFIX),
                             quotes = quotes,
                             rates = rates,
+                            candles = candles,
                             busy = quoteBusy,
                             onBack = { popOverlay() },
-                            onRefresh = { vm.refreshQuotes() },
+                            onRefresh = {
+                                vm.refreshQuotes()
+                                vm.ensureDaily(ledger.stocks, force = true)
+                            },
                             onSaveHolding = { stock, costE4, shares ->
                                 vm.saveHolding(
                                     current.removePrefix(STOCK_ACC_PREFIX),
@@ -445,6 +477,8 @@ fun PotRoot(
                                     shares,
                                 )
                                 vm.refreshQuotes(silent = true)
+                                // 新加的票还没有日 K，补一下才能画走势
+                                vm.ensureDaily(listOf(stock), force = true)
                             },
                             onRemoveHolding = { stockId ->
                                 vm.removeHolding(current.removePrefix(STOCK_ACC_PREFIX), stockId)
@@ -460,7 +494,52 @@ fun PotRoot(
                                 toast = "股票账户已删除"
                                 popOverlay()
                             },
+                            onOpenStock = { stockId ->
+                                openOverlay(
+                                    STOCK_DETAIL_PREFIX + current.removePrefix(STOCK_ACC_PREFIX) + "/" + stockId,
+                                )
+                            },
+                            onLoadDaily = {
+                                val account = ledger.stockAccounts.firstOrNull {
+                                    it.id == current.removePrefix(STOCK_ACC_PREFIX)
+                                }
+                                val ids = account?.entries?.keys.orEmpty()
+                                vm.ensureDaily(ledger.stocks.filter { it.id in ids })
+                            },
                         )
+
+                        current.startsWith(STOCK_DETAIL_PREFIX) -> {
+                            val parts = current.removePrefix(STOCK_DETAIL_PREFIX).split("/")
+                            val accountId = parts.firstOrNull().orEmpty()
+                            val stockId = parts.getOrNull(1).orEmpty()
+                            StockDetailScreen(
+                                ledger = ledger,
+                                accountId = accountId,
+                                stockId = stockId,
+                                quotes = quotes,
+                                rates = rates,
+                                candles = candles,
+                                minutes = minutes,
+                                busy = quoteBusy,
+                                onBack = { popOverlay() },
+                                onRefresh = {
+                                    vm.refreshQuotes()
+                                    vm.ensureDaily(ledger.stocks, force = true)
+                                    ledger.stocks.firstOrNull { it.id == stockId }?.let {
+                                        vm.ensureMinute(it, force = true)
+                                    }
+                                },
+                                onLoadMinute = {
+                                    ledger.stocks.firstOrNull { it.id == stockId }?.let { vm.ensureMinute(it) }
+                                },
+                                onSaveHolding = { stock, costE4, shares ->
+                                    vm.saveHolding(accountId, stock, costE4, shares)
+                                    vm.refreshQuotes(silent = true)
+                                    vm.ensureDaily(listOf(stock), force = true)
+                                },
+                                onRemoveHolding = { id -> vm.removeHolding(accountId, id) },
+                            )
+                        }
 
                         current.startsWith(PROJECT_PREFIX) -> ProjectDetailScreen(
                             ledger = ledger,

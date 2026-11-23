@@ -27,7 +27,6 @@ import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,6 +56,10 @@ import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.ui.components.Hairline
 import cn.neeto.stockpot.ui.components.PotCard
+import cn.neeto.stockpot.ui.components.PotConfirmSheet
+import cn.neeto.stockpot.ui.components.PotSheet
+import cn.neeto.stockpot.ui.components.SheetActions
+import cn.neeto.stockpot.ui.components.SheetField
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 
 /** 内置类型：顺序决定分组与选择页的顺序，`credit` 单独当负债看。 */
@@ -310,52 +313,30 @@ private fun ImportedAccountRow(name: String, kind: String, onClick: () -> Unit) 
 private fun CustomKindDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     val colors = LocalPotColors.current
     var name by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = colors.panel,
-        title = { Text("自定义类型", style = MaterialTheme.typography.titleMedium, color = colors.ink) },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
-                BasicTextField(
-                    value = name,
-                    onValueChange = { name = it.take(8) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colors.panel2)
-                        .padding(horizontal = 12.dp, vertical = 13.dp),
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.ink),
-                    cursorBrush = SolidColor(colors.brand),
-                    decorationBox = { inner ->
-                        Box {
-                            if (name.isEmpty()) {
-                                Text("比如 数字钱包、黄金", style = MaterialTheme.typography.bodyMedium, color = colors.ink3)
-                            }
-                            inner()
-                        }
-                    },
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "自定义类型只存在这台手机的账本里，和内置类型一样参与分组和统计。",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.ink3,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = name.isNotBlank(),
-                onClick = { onConfirm(name.trim()) },
-            ) {
-                Text("创建", fontSize = 15.sp, color = if (name.isNotBlank()) colors.brand else colors.ink3)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消", fontSize = 15.sp, color = colors.ink2) }
-        },
-    )
+    PotSheet(onDismiss = onDismiss) {
+        Text("自定义类型", style = MaterialTheme.typography.titleLarge, color = colors.ink)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "自定义类型只存在这台手机的账本里，和内置类型一样参与分组和统计。",
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.ink3,
+            lineHeight = 19.sp,
+        )
+        Spacer(Modifier.height(14.dp))
+        SheetField(
+            label = "类型名称",
+            value = name,
+            placeholder = "比如 数字钱包、黄金",
+            onValueChange = { name = it.take(8) },
+        )
+        SheetActions(
+            confirmText = "创建",
+            enabled = name.isNotBlank(),
+            onConfirm = { onConfirm(name.trim()) },
+            onCancel = onDismiss,
+            danger = false,
+        )
+    }
 }
 
 @Composable
@@ -398,7 +379,11 @@ fun WalletEditorScreen(
     onDelete: (Wallet) -> Unit,
 ) {
     val colors = LocalPotColors.current
-    var name by rememberSaveable(wallet.id, isNew) { mutableStateOf(wallet.name) }
+    // 名称一起当 key：从「识别出的账户」点进来时草稿已经被填了名字，
+    // 这里要跟着重置，否则 rememberSaveable 会把上一次空表单的 "" 还原回来。
+    var name by rememberSaveable(wallet.id, isNew, wallet.name) {
+        mutableStateOf(wallet.name)
+    }
     var note by rememberSaveable(wallet.id, isNew) { mutableStateOf(wallet.note) }
     var balanceText by rememberSaveable(wallet.id, isNew) {
         mutableStateOf(if (isNew && wallet.balance == 0L) "" else Fmt.editYuan(wallet.balance))
@@ -518,26 +503,14 @@ fun WalletEditorScreen(
     }
 
     if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            containerColor = colors.panel,
-            title = { Text("删除「${wallet.name}」？", style = MaterialTheme.typography.titleMedium, color = colors.ink) },
-            text = {
-                Text(
-                    "只是不再统计这个账户的余额，账本里的账目不受影响。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.ink2,
-                    lineHeight = 20.sp,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDelete = false
-                    onDelete(wallet)
-                }) { Text("删除", fontSize = 15.sp, color = colors.danger) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text("取消", fontSize = 15.sp, color = colors.ink2) }
+        PotConfirmSheet(
+            title = "删除「${wallet.name}」？",
+            body = "只是不再统计这个账户的余额，账本里的账目不受影响。",
+            confirmText = "删除",
+            onDismiss = { confirmDelete = false },
+            onConfirm = {
+                confirmDelete = false
+                onDelete(wallet)
             },
         )
     }

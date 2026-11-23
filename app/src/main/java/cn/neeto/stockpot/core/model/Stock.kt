@@ -56,6 +56,23 @@ object Market {
     }
 }
 
+/** 一根日 K。价格同样是万分之一元，画图时再按像素缩。 */
+@Immutable
+data class Candle(
+    val day: String,
+    val openE4: Long,
+    val closeE4: Long,
+    val highE4: Long,
+    val lowE4: Long,
+)
+
+/**
+ * 曲线上的一个点。分时图里 value 是价格（万分之一元），
+ * 资产走势里是市值（分），由调用方决定怎么格式化。
+ */
+@Immutable
+data class CurvePoint(val label: String, val value: Long)
+
 /** 一次行情快照，不落盘，进程重建后重新拉。 */
 @Immutable
 data class Quote(
