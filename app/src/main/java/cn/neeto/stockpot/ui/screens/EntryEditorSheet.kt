@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -60,6 +62,7 @@ import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.ui.components.Chip
 import cn.neeto.stockpot.ui.components.Segmented
+import cn.neeto.stockpot.ui.components.SheetGrabber
 import cn.neeto.stockpot.ui.components.SheetHeader
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
@@ -132,30 +135,22 @@ fun EntryEditorSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = colors.panel,
-        dragHandle = {
-            Box(
-                Modifier
-                    .padding(top = 10.dp, bottom = 2.dp)
-                    .size(width = 36.dp, height = 4.dp)
-                    .clip(CircleShape)
-                    .background(colors.lineStrong),
-            )
-        },
+        // 自己管 inset：抓手要把状态栏让出来，底部留白交给下面的 Spacer
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        dragHandle = { SheetGrabber() },
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .imePadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
-        ) {
-            SheetHeader(
-                title = if (existing == null) "记一笔" else "编辑账目",
-                subtitle = if (existing == null) null else Fmt.dayLabel(existing.date),
-                onClose = onDismiss,
-            )
+        Column(Modifier.fillMaxWidth().imePadding()) {
+            Column(
+                modifier = Modifier
+                    .weight(1f, false)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp),
+            ) {
+                SheetHeader(
+                    title = if (existing == null) "记一笔" else "编辑账目",
+                    subtitle = if (existing == null) null else Fmt.dayLabel(existing.date),
+                    onClose = onDismiss,
+                )
 
             Spacer(Modifier.height(6.dp))
             Segmented(
@@ -350,6 +345,8 @@ fun EntryEditorSheet(
                 }
             }
             Spacer(Modifier.height(8.dp))
+            }
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
     }
 

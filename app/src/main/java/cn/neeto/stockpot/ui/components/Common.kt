@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,13 +48,40 @@ fun PotCard(
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     val colors = LocalPotColors.current
+    val shape = RoundedCornerShape(18.dp)
+    // 不点的时候只画圆角背景，不做 clip：clip 会为整张卡建一个图层，列表滑动时每帧都要还这笔账
     val base = modifier
         .fillMaxWidth()
-        .clip(RoundedCornerShape(18.dp))
-        .background(colors.panel)
+        .then(if (onClick != null) Modifier.clip(shape) else Modifier)
+        .background(colors.panel, shape)
         .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
         .padding(padding)
     Column(modifier = base, content = content)
+}
+
+/**
+ * 底部弹层的抓手。
+ *
+ * 弹层内容长到顶满屏幕时，标题会顶到状态栏上，所以这里自己把状态栏高度让出来，
+ * 同时让面板的底色继续铺到屏幕最上沿（配合 contentWindowInsets = 0）。
+ */
+@Composable
+fun SheetGrabber() {
+    val colors = LocalPotColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(top = 8.dp, bottom = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier
+                .size(width = 36.dp, height = 4.dp)
+                .clip(CircleShape)
+                .background(colors.lineStrong),
+        )
+    }
 }
 
 @Composable

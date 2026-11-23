@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -62,6 +64,7 @@ import cn.neeto.stockpot.ui.components.Hairline
 import cn.neeto.stockpot.ui.components.PotCard
 import cn.neeto.stockpot.ui.components.SectionTitle
 import cn.neeto.stockpot.ui.components.Segmented
+import cn.neeto.stockpot.ui.components.SheetGrabber
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -69,7 +72,11 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(vm: PotViewModel, onToast: (String) -> Unit) {
+fun SettingsScreen(
+    vm: PotViewModel,
+    onToast: (String) -> Unit,
+    onOpenImport: () -> Unit,
+) {
     val colors = LocalPotColors.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -178,6 +185,12 @@ fun SettingsScreen(vm: PotViewModel, onToast: (String) -> Unit) {
                 Column(Modifier.padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 4.dp)) {
                     SectionTitle("数据")
                 }
+                SettingsRow(
+                    title = "导入账单",
+                    subtitle = "微信 .xlsx / 支付宝 .csv / iCost / 通用 CSV / 账本 JSON",
+                    onClick = onOpenImport,
+                )
+                Hairline(Modifier.padding(start = 16.dp))
                 SettingsRow(
                     title = "导出账本",
                     subtitle = "一份可读的 ledger.json，桌面端也能打开",
@@ -376,10 +389,17 @@ private fun CategoryManagerSheet(
     var adding by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<CategoryDef?>(null) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = colors.panel) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.panel,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        dragHandle = { SheetGrabber() },
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
         ) {
@@ -621,10 +641,17 @@ private fun RuleManagerSheet(
     var category by remember { mutableStateOf("") }
     var showPicker by remember { mutableStateOf(false) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = colors.panel) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.panel,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        dragHandle = { SheetGrabber() },
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
         ) {

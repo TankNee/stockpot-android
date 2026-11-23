@@ -1,25 +1,43 @@
 package cn.neeto.stockpot.core.data
 
+import androidx.compose.runtime.Immutable
 import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
 import java.math.BigDecimal
-import java.text.DecimalFormat
-import java.text.DecimalFormatSymbols
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
-/** 金额与日期的显示格式。所有金额入参都是「分」。 */
+/**
+ * 金额与日期的显示格式。所有金额入参都是「分」。
+ *
+ * 这些函数在滚动时会被每帧调用几十次，所以全部走字符串拼接：
+ * 以前每次 new 一个 DecimalFormat + BigDecimal，一屏列表就是几毫秒的卡顿。
+ */
 object Fmt {
 
     private fun money(cents: Long): String {
-        val symbols = DecimalFormatSymbols(Locale.CHINA)
-        val format = DecimalFormat("#,##0.00", symbols)
-        return format.format(BigDecimal.valueOf(cents).movePointLeft(2))
+        val abs = if (cents < 0) -cents else cents
+        val yuan = abs / 100
+        val fen = (abs % 100).toInt()
+        val digits = yuan.toString()
+        val builder = StringBuilder(digits.length + 4 + if (fen < 10) 1 else 0)
+        val len = digits.length
+        var i = 0
+        while (i < len) {
+            if (i > 0 && (len - i) % 3 == 0) builder.append(',')
+            builder.append(digits[i])
+            i++
+        }
+        builder.append('.')
+        if (fen < 10) builder.append('0')
+        builder.append(fen)
+        return builder.toString()
     }
 
     /** `1234.5` 元 → `1,234.50` */
@@ -32,25 +50,36 @@ object Fmt {
             signed && cents > 0 -> "+"
             else -> ""
         }
-        return "$sign¥${money(kotlin.math.abs(cents))}"
+        val body = money(if (cents < 0) -cents else cents)
+        return StringBuilder(sign.length + body.length + 1).append(sign).append('¥').append(body).toString()
     }
 
     /** 紧凑写法：850、1.1k、23k、1.2m，给日历格子和图表用。 */
     fun compact(cents: Long): String {
-        val yuan = kotlin.math.abs(cents) / 100.0
+        val abs = if (cents < 0) -cents else cents
         return when {
-            yuan < 1000 -> if (yuan < 10) {
-                if (yuan % 1.0 == 0.0) yuan.toInt().toString() else String.format(Locale.CHINA, "%.1f", yuan)
-            } else {
-                yuan.roundToIntLike().toString()
+            // 1000 元以下：整数元，小数额保留一位小数
+            abs < 100_000 -> {
+                if (abs % 100 == 0L) (abs / 100).toString() else oneDecimal(abs, 10L, "")
             }
-            yuan >= 1_000_000 -> String.format(Locale.CHINA, "%.1fm", yuan / 1_000_000)
-            yuan >= 100_000 -> "${(yuan / 1000).roundToIntLike()}k"
-            else -> String.format(Locale.CHINA, "%.1fk", yuan / 1000)
+            // 100 万元以上
+            abs >= 100_000_000L -> oneDecimal(abs, 10_000_000L, "m")
+            // 10 万元以上：整数 k
+            abs >= 10_000_000L -> "${abs / 100_000}k"
+            else -> oneDecimal(abs, 10_000L, "k")
         }
     }
 
-    private fun Double.roundToIntLike(): Int = kotlin.math.round(this).toInt()
+    /**
+     * 一位小数。`unitCents` 是「0.1 个单位」值多少分：
+     * 0.1 元 = 10 分，0.1k = 10000 分，0.1m = 10000000 分。
+     */
+    private fun oneDecimal(cents: Long, unitCents: Long, suffix: String): String {
+        val tenths = (cents + unitCents / 2) / unitCents
+        val whole = tenths / 10
+        val rest = tenths % 10
+        return if (rest == 0L) "$whole$suffix" else "$whole.${rest}$suffix"
+    }
 
     /** 输入框里的「12.5」→ 1250 分。容忍 ¥、逗号和负号。 */
     fun parseYuan(text: String): Long? {
@@ -97,15 +126,29 @@ object Fmt {
 
     private val weekdayNames = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
-    fun weekday(date: String): String = runCatching {
-        weekdayNames[LocalDate.parse(date).dayOfWeek.value - 1]
-    }.getOrDefault("")
+    /** 列表一屏几十行，日期文案缓存一下，别每次都 parse。 */
+    private val dayLabelCache = ConcurrentHashMap<String, String>(128)
+    private val weekdayCache = ConcurrentHashMap<String, String>(128)
+
+    fun weekday(date: String): String {
+        weekdayCache[date]?.let { return it }
+        val label = runCatching {
+            weekdayNames[LocalDate.parse(date).dayOfWeek.value - 1]
+        }.getOrDefault("")
+        if (weekdayCache.size < 512) weekdayCache[date] = label
+        return label
+    }
 
     /** `11月22日 周六` */
-    fun dayLabel(date: String): String = runCatching {
-        val parsed = LocalDate.parse(date)
-        "${parsed.monthValue}月${parsed.dayOfMonth}日 ${weekday(date)}"
-    }.getOrDefault(date)
+    fun dayLabel(date: String): String {
+        dayLabelCache[date]?.let { return it }
+        val label = runCatching {
+            val parsed = LocalDate.parse(date)
+            "${parsed.monthValue}月${parsed.dayOfMonth}日 ${weekdayNames[parsed.dayOfWeek.value - 1]}"
+        }.getOrDefault(date)
+        if (dayLabelCache.size < 512) dayLabelCache[date] = label
+        return label
+    }
 
     /** 当月第几天是周几（周一为 0），用于日历首行留白。 */
     fun firstWeekdayOffset(month: String): Int = runCatching {
@@ -126,21 +169,24 @@ object Fmt {
     fun fromEpochMillis(millis: Long): String =
         Instant.ofEpochMilli(millis).atZone(java.time.ZoneOffset.UTC).toLocalDate().toString()
 
-    fun shortDate(date: String): String = runCatching {
-        val parsed = LocalDate.parse(date)
-        parsed.format(DateTimeFormatter.ofPattern("MM-dd", Locale.CHINA))
-    }.getOrDefault(date)
+    /** `2026-11-22` → `11-22`，纯字符串切片，不用 formatter。 */
+    fun shortDate(date: String): String =
+        if (date.length >= 10) "${date.substring(5, 7)}-${date.substring(8, 10)}" else date
+
+    private val stampFormatter: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("MM-dd HH:mm", Locale.CHINA)
 
     /** 导入历史里显示的时间戳。 */
     fun stampLabel(raw: String): String = runCatching {
         val instant = Instant.parse(raw)
-        val local = instant.atZone(ZoneId.systemDefault())
-        local.format(DateTimeFormatter.ofPattern("MM-dd HH:mm", Locale.CHINA))
+        instant.atZone(ZoneId.systemDefault()).format(stampFormatter)
     }.getOrDefault(raw.take(16))
 }
 
+@Immutable
 data class CategoryTotal(val category: String, val total: Long, val share: Float)
 
+@Immutable
 data class MonthSummary(
     val month: String,
     val expense: Long,
@@ -150,8 +196,10 @@ data class MonthSummary(
     val count: Int,
 )
 
+@Immutable
 data class DayTotal(val day: Int, val date: String, val expense: Long, val income: Long)
 
+@Immutable
 data class YearMonthTotal(val month: Int, val expense: Long, val income: Long)
 
 object LedgerMath {

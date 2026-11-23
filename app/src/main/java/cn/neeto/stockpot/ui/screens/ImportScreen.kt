@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,7 +18,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -70,6 +75,7 @@ fun ImportScreen(
     vm: PotViewModel,
     incoming: Documents.Picked?,
     onIncomingConsumed: () -> Unit,
+    onBack: () -> Unit,
 ) {
     val colors = LocalPotColors.current
     val context = LocalContext.current
@@ -112,9 +118,27 @@ fun ImportScreen(
     }
 
     LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.size(34.dp)) {
+                    Icon(
+                        Icons.Outlined.ArrowBack,
+                        contentDescription = "返回",
+                        tint = colors.ink2,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+                Text("导入账单", style = MaterialTheme.typography.titleMedium, color = colors.ink)
+            }
+        }
         item {
             Column {
                 Text(

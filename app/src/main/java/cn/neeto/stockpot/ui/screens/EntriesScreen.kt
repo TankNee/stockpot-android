@@ -72,15 +72,18 @@ fun EntriesScreen(
     }
 
     val entries = remember(ledger.entries, month, kindFilter, dayFilter, query) {
+        val needle = query.trim()
         ledger.entries
             .filter { !it.archived }
             .filter { Fmt.monthOf(it.date) == month }
             .filter { dayFilter == null || it.date == dayFilter }
             .filter { kindFilter == "all" || it.kind == kindFilter }
             .filter { entry ->
-                query.isBlank() || listOf(
-                    entry.counterparty, entry.note, entry.category, entry.account,
-                ).any { it.contains(query, ignoreCase = true) }
+                needle.isEmpty() ||
+                    entry.counterparty.contains(needle, ignoreCase = true) ||
+                    entry.note.contains(needle, ignoreCase = true) ||
+                    entry.category.contains(needle, ignoreCase = true) ||
+                    entry.account.contains(needle, ignoreCase = true)
             }
             .sortedWith(compareByDescending<Entry> { it.date }.thenByDescending { it.time })
     }
@@ -161,7 +164,7 @@ fun EntriesScreen(
                 item(key = "day-$date") {
                     DayHeader(date = date, expense = expense, income = income)
                 }
-                items(dayEntries, key = { it.id }) { entry ->
+                items(dayEntries, key = { it.id }, contentType = { "entry" }) { entry ->
                     Box(Modifier.background(colors.panel)) {
                         EntryRow(entry = entry, onClick = { onOpenEntry(entry) })
                     }

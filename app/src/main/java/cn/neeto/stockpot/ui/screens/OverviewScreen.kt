@@ -20,9 +20,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,9 +34,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.neeto.stockpot.core.data.CategoryTotal
+import cn.neeto.stockpot.core.data.DayTotal
 import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.data.LedgerMath
 import cn.neeto.stockpot.core.data.MonthSummary
+import cn.neeto.stockpot.core.data.YearMonthTotal
 import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.ui.components.DailyBars
@@ -65,21 +67,11 @@ fun OverviewScreen(
     onLoadDemo: () -> Unit,
 ) {
     val colors = LocalPotColors.current
-    var month by rememberSaveable { mutableStateOf(LedgerMath.latestMonth(ledger.entries, Fmt.currentMonth())) }
+    val entries = ledger.entries
+    var month by rememberSaveable { mutableStateOf(LedgerMath.latestMonth(entries, Fmt.currentMonth())) }
     var range by rememberSaveable { mutableStateOf("month") }
 
-    val summary = remember(ledger.entries, month) { LedgerMath.summarize(ledger.entries, month) }
-    val trend = remember(ledger.entries, month) { LedgerMath.dailyTrend(ledger.entries, month) }
-    val yearRows = remember(ledger.entries, month) { LedgerMath.yearMonths(ledger.entries, Fmt.yearOf(month)) }
-    val recent = remember(ledger.entries, month) { LedgerMath.monthEntries(ledger.entries, month).take(5) }
-    val allTimeNet = remember(ledger.entries) { LedgerMath.allTimeNet(ledger.entries) }
-    val walletsTotal = remember(ledger.wallets) { LedgerMath.walletsTotal(ledger) }
-
-    val activeDays = trend.count { it.expense > 0 }
-    val dailyAverage = if (activeDays > 0) summary.expense / activeDays else 0L
-    val biggest = trend.maxByOrNull { it.expense }
-
-    if (ledger.entries.isEmpty()) {
+    if (entries.isEmpty()) {
         Column(Modifier.fillMaxWidth()) {
             MonthStepper(month, { month = Fmt.shiftMonth(month, it) }, Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
             EmptyState(
@@ -101,12 +93,23 @@ fun OverviewScreen(
         return
     }
 
+    val summary = remember(entries, month) { LedgerMath.summarize(entries, month) }
+    val trend = remember(entries, month) { LedgerMath.dailyTrend(entries, month) }
+    val yearRows = remember(entries, month) { LedgerMath.yearMonths(entries, Fmt.yearOf(month)) }
+    val recent = remember(entries, month) { LedgerMath.monthEntries(entries, month).take(5) }
+    val allTimeNet = remember(entries) { LedgerMath.allTimeNet(entries) }
+    val walletsTotal = remember(ledger.wallets) { LedgerMath.walletsTotal(ledger) }
+
+    val activeDays = trend.count { it.expense > 0 }
+    val dailyAverage = if (activeDays > 0) summary.expense / activeDays else 0L
+    val biggest = trend.maxByOrNull { it.expense }
+
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
+        item(key = "stepper", contentType = "bar") {
             MonthStepper(
                 month = month,
                 onShift = { month = Fmt.shiftMonth(month, it) },
@@ -123,7 +126,7 @@ fun OverviewScreen(
             )
         }
 
-        item {
+        item(key = "hero", contentType = "card") {
             HeroCard(
                 summary = summary,
                 range = range,
@@ -136,162 +139,224 @@ fun OverviewScreen(
         }
 
         if (range == "year") {
-            item {
-                PotCard {
-                    SectionTitle("按月的支出", trailing = {
-                        Text(
-                            text = "全年 ${Fmt.yuan(yearRows.sumOf { it.expense })}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = colors.ink3,
-                        )
-                    })
-                    Spacer(Modifier.height(10.dp))
-                    YearBars(values = yearRows.map { it.expense })
-                }
+            item(key = "yearbars", contentType = "card") {
+                YearBarsCard(yearRows = yearRows)
             }
-            item {
-                val best = yearRows.maxByOrNull { it.expense }
-                PotCard {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        YearStat("花得最多", best?.let { "${it.month}月" } ?: "—", best?.let { Fmt.yuan(it.expense) } ?: "¥0.00")
-                        YearStat("有支出的月份", "${yearRows.count { it.expense > 0 }} / 12", null)
-                        YearStat("月均支出", Fmt.yuan(yearRows.sumOf { it.expense } / 12), null)
-                    }
-                }
+            item(key = "yearstat", contentType = "card") {
+                YearStatCard(yearRows = yearRows)
             }
         } else {
-            item {
-                PotCard {
-                    SectionTitle("每日支出", trailing = {
-                        val peak = biggest?.takeIf { it.expense > 0 }
-                        Text(
-                            text = if (peak != null) "最高 ${peak.day} 日 ${Fmt.yuan(peak.expense)}" else "这个月还没有支出",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = colors.ink3,
-                        )
-                    })
-                    Spacer(Modifier.height(8.dp))
-                    DailyBars(
-                        trend = trend,
-                        selectedDate = null,
-                        onPick = { onOpenDay(it.date) },
-                    )
-                }
+            item(key = "daily", contentType = "card") {
+                DailyCard(
+                    trend = trend,
+                    peak = biggest?.takeIf { it.expense > 0 }?.let { it.day to it.expense },
+                    onOpenDay = onOpenDay,
+                )
             }
 
-            item {
-                PotCard {
-                    SectionTitle("支出分类", trailing = {
-                        Text(
-                            text = "${summary.byCategory.size} 类",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = colors.ink3,
-                        )
-                    })
-                    Spacer(Modifier.height(12.dp))
-                    if (summary.expense == 0L) {
-                        Text(
-                            "这个月还没有支出记录",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.ink3,
-                            modifier = Modifier.padding(vertical = 18.dp),
-                        )
-                    } else {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Donut(
-                                    shares = summary.byCategory.take(6).map { it.share },
-                                    modifier = Modifier.size(116.dp),
-                                )
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        text = "支出",
-                                        fontSize = 10.sp,
-                                        color = colors.ink3,
-                                    )
-                                    Text(
-                                        text = Fmt.compact(summary.expense),
-                                        style = MoneyStyle.copy(fontSize = 15.sp),
-                                        color = colors.ink,
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.width(16.dp))
-                            Column(Modifier.weight(1f)) {
-                                summary.byCategory.take(5).forEachIndexed { index, item ->
-                                    CategoryLegendRow(item, colors.chartPalette[index % colors.chartPalette.size])
-                                    if (index < 4) Spacer(Modifier.height(7.dp))
-                                }
-                            }
-                        }
-                    }
-                }
+            item(key = "category", contentType = "card") {
+                CategoryCard(summary = summary)
             }
 
-            item {
-                PotCard {
-                    SectionTitle("日历", trailing = {
-                        Text(
-                            text = "点格子看当天流水",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = colors.ink3,
-                        )
-                    })
-                    Spacer(Modifier.height(10.dp))
-                    MonthCalendar(
-                        month = month,
-                        trend = trend,
-                        selectedDate = null,
-                        onPick = { onOpenDay(it.date) },
-                    )
-                }
+            item(key = "calendar", contentType = "card") {
+                CalendarCard(month = month, trend = trend, onOpenDay = onOpenDay)
             }
         }
 
-        item {
-            PotCard(padding = PaddingValues(0.dp)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    SectionTitle("最近记录", modifier = Modifier.weight(1f))
-                    TextButton(onClick = { onOpenMonth(month) }) {
-                        Text("全部", fontSize = 12.sp, color = colors.brandInk)
-                    }
-                }
-                recent.forEachIndexed { index, entry ->
-                    EntryRow(entry = entry, onClick = { onOpenEntry(entry) })
-                    if (index < recent.lastIndex) {
-                        Box(Modifier.padding(start = 64.dp)) { Hairline() }
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
-            }
+        item(key = "recent", contentType = "card") {
+            RecentCard(recent = recent, onOpenEntry = onOpenEntry, onOpenAll = { onOpenMonth(month) })
         }
 
-        item {
-            PotCard(onClick = onOpenWallets) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("资产", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
-                        Spacer(Modifier.height(5.dp))
+        item(key = "wallets", contentType = "card") {
+            WalletsCard(
+                total = walletsTotal,
+                count = ledger.wallets.size,
+                allTimeNet = allTimeNet,
+                onOpen = onOpenWallets,
+            )
+        }
+    }
+}
+
+@Composable
+private fun YearBarsCard(yearRows: List<YearMonthTotal>) {
+    val colors = LocalPotColors.current
+    val total = remember(yearRows) { yearRows.sumOf { it.expense } }
+    val values = remember(yearRows) { yearRows.map { it.expense } }
+    PotCard {
+        SectionTitle("按月的支出", trailing = {
+            Text(
+                text = "全年 ${Fmt.yuan(total)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.ink3,
+            )
+        })
+        Spacer(Modifier.height(10.dp))
+        YearBars(values = values)
+    }
+}
+
+@Composable
+private fun YearStatCard(yearRows: List<YearMonthTotal>) {
+    val best = remember(yearRows) { yearRows.maxByOrNull { it.expense } }
+    val activeMonths = remember(yearRows) { yearRows.count { it.expense > 0 } }
+    val total = remember(yearRows) { yearRows.sumOf { it.expense } }
+    PotCard {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            YearStat("花得最多", best?.let { "${it.month}月" } ?: "—", best?.let { Fmt.yuan(it.expense) } ?: "¥0.00")
+            YearStat("有支出的月份", "$activeMonths / 12", null)
+            YearStat("月均支出", Fmt.yuan(total / 12), null)
+        }
+    }
+}
+
+@Composable
+private fun DailyCard(
+    trend: List<DayTotal>,
+    peak: Pair<Int, Long>?,
+    onOpenDay: (String) -> Unit,
+) {
+    val colors = LocalPotColors.current
+    PotCard {
+        SectionTitle("每日支出", trailing = {
+            Text(
+                text = if (peak != null) "最高 ${peak.first} 日 ${Fmt.yuan(peak.second)}" else "这个月还没有支出",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.ink3,
+            )
+        })
+        Spacer(Modifier.height(8.dp))
+        DailyBars(
+            trend = trend,
+            selectedDate = null,
+            onPick = { onOpenDay(it.date) },
+        )
+    }
+}
+
+@Composable
+private fun CategoryCard(summary: MonthSummary) {
+    val colors = LocalPotColors.current
+    val shown = remember(summary) { summary.byCategory.take(5) }
+    PotCard {
+        SectionTitle("支出分类", trailing = {
+            Text(
+                text = "${summary.byCategory.size} 类",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.ink3,
+            )
+        })
+        Spacer(Modifier.height(12.dp))
+        if (summary.expense == 0L) {
+            Text(
+                "这个月还没有支出记录",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.ink3,
+                modifier = Modifier.padding(vertical = 18.dp),
+            )
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(contentAlignment = Alignment.Center) {
+                    Donut(
+                        shares = summary.byCategory.take(6).map { it.share },
+                        modifier = Modifier.size(116.dp),
+                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = Fmt.yuan(walletsTotal),
-                            style = MoneyStyle.copy(fontSize = 24.sp, fontWeight = FontWeight.SemiBold),
+                            text = "支出",
+                            fontSize = 10.sp,
+                            color = colors.ink3,
+                        )
+                        Text(
+                            text = Fmt.compact(summary.expense),
+                            style = MoneyStyle.copy(fontSize = 15.sp),
                             color = colors.ink,
                         )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "${ledger.wallets.size} 个账户  ·  账本累计净 ${Fmt.yuan(allTimeNet, signed = true)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = colors.ink3,
-                        )
                     }
-                    Text("管理", fontSize = 12.sp, color = colors.brandInk)
+                }
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    shown.forEachIndexed { index, item ->
+                        CategoryLegendRow(item, colors.chartPalette[index % colors.chartPalette.size])
+                        if (index < shown.lastIndex) Spacer(Modifier.height(7.dp))
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CalendarCard(
+    month: String,
+    trend: List<DayTotal>,
+    onOpenDay: (String) -> Unit,
+) {
+    val colors = LocalPotColors.current
+    PotCard {
+        SectionTitle("日历", trailing = {
+            Text(
+                text = "点格子看当天流水",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.ink3,
+            )
+        })
+        Spacer(Modifier.height(10.dp))
+        MonthCalendar(
+            month = month,
+            trend = trend,
+            selectedDate = null,
+            onPick = { onOpenDay(it.date) },
+        )
+    }
+}
+
+@Composable
+private fun RecentCard(recent: List<Entry>, onOpenEntry: (Entry) -> Unit, onOpenAll: () -> Unit) {
+    val colors = LocalPotColors.current
+    PotCard(padding = PaddingValues(0.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SectionTitle("最近记录", modifier = Modifier.weight(1f))
+            TextButton(onClick = onOpenAll) {
+                Text("全部", fontSize = 12.sp, color = colors.brandInk)
+            }
+        }
+        recent.forEachIndexed { index, entry ->
+            EntryRow(entry = entry, onClick = { onOpenEntry(entry) })
+            if (index < recent.lastIndex) {
+                Box(Modifier.padding(start = 64.dp)) { Hairline() }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+    }
+}
+
+@Composable
+private fun WalletsCard(total: Long, count: Int, allTimeNet: Long, onOpen: () -> Unit) {
+    val colors = LocalPotColors.current
+    PotCard(onClick = onOpen) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("资产", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    text = Fmt.yuan(total),
+                    style = MoneyStyle.copy(fontSize = 24.sp, fontWeight = FontWeight.SemiBold),
+                    color = colors.ink,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "$count 个账户  ·  账本累计净 ${Fmt.yuan(allTimeNet, signed = true)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.ink3,
+                )
+            }
+            Text("管理", fontSize = 12.sp, color = colors.brandInk)
         }
     }
 }

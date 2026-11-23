@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -51,6 +52,7 @@ import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.ui.components.Chip
 import cn.neeto.stockpot.ui.components.Hairline
+import cn.neeto.stockpot.ui.components.SheetGrabber
 import cn.neeto.stockpot.ui.components.SheetHeader
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
@@ -85,7 +87,13 @@ fun WalletSheet(
     val total = LedgerMath.walletsTotal(ledger)
     val net = LedgerMath.allTimeNet(ledger.entries)
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = colors.panel) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.panel,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        dragHandle = { SheetGrabber() },
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()

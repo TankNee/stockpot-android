@@ -1,9 +1,19 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
+
+// 签名配置放在 keystore.properties，仓库里带了一份默认的：
+// 同一个 key 才能覆盖安装，别删 keystore/ 目录。
+val keystoreFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystoreFile.exists()) keystoreFile.inputStream().use { load(it) }
+}
+val hasKeystore = keystoreFile.exists() && keystoreProps.getProperty("storeFile") != null
 
 android {
     namespace = "cn.neeto.stockpot"
@@ -13,14 +23,37 @@ android {
         applicationId = "cn.neeto.stockpot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         vectorDrawables.useSupportLibrary = true
     }
 
+    signingConfigs {
+        create("release") {
+            if (hasKeystore) {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+                enableV1Signing = true
+                enableV2Signing = true
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = if (hasKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

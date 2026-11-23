@@ -16,11 +16,13 @@
   商家、账户、备注、项目归属。
 - **项目** — 把一次旅行、搬家、装修的账目收在一起。项目只是分组，不改变分类和金额；
   删除项目只解除分组，账目一条不删。可从项目页批量「添加账目」。
-- **导入账单** — 微信 `.xlsx`、支付宝 `.csv`、iCost、通用 CSV、桌面端 `ledger.json`；
-  导入前先预览（新增/重复/忽略、收支合计、日期范围、样例行），确认后才写入。
-  也支持在微信/支付宝里直接「分享到 Stockpot」。
 - **资产** — 手工维护的银行卡、零钱、信用卡余额，与账本累计净一起看。
-- **设置** — 主题（跟随系统/浅/深）、分类树管理、关键词规则管理、导出/导入账本、示例数据、清空流水。
+- **设置** — 主题（跟随系统/浅/深）、分类树管理、关键词规则管理、**导入账单**、导出/导入账本、
+  示例数据、清空流水。
+
+导入不是底部 tab，而是设置里的一个入口（也是一层可返回的页面）：微信 `.xlsx`、支付宝 `.csv`、
+iCost、通用 CSV、桌面端 `ledger.json`。导入前先预览（新增/重复/忽略、收支合计、日期范围、样例行），
+确认后才写入。在微信/支付宝里直接「分享到 Stockpot」也会落到这个页面。
 
 金额一律以 **分**（`Long`）存储，汇总不会漂移。支出用红、收入用绿（国内习惯）。
 
@@ -99,22 +101,43 @@ app/src/main/java/cn/neeto/stockpot/
   core/importer/ImportEngine.kt 预览、去重、退款匹配、关键词归类、账本合并
   core/settings/SettingsStore.kt 主题偏好
   core/util/Documents.kt    SAF 文档读写
-  ui/PotRoot.kt             底部导航、记一笔入口、撤销条
+  ui/PotRoot.kt             四个 tab 的路由与切换动画、记一笔入口、撤销条
   ui/PotViewModel.kt        状态与所有写操作
   ui/theme/Theme.kt         暖纸/墨色配色与排版
   ui/components/            卡片、分段控件、日历、环形图、流水行
-  ui/screens/               总览 / 流水 / 项目 / 导入 / 设置 / 编辑 / 钱包
-app/src/test/java/…         21 个单元测试：解析、去重、退款、汇总、分类改名、JSON 兼容、日期换算
+  ui/screens/               总览 / 流水 / 项目 / 设置 / 导入页 / 编辑 / 钱包
+app/src/test/java/…         24 个单元测试：解析、去重、退款、汇总、分类改名、JSON 兼容、日期换算、金额格式
 ```
 
 ## 构建
 
 ```bash
-./gradlew :app:assembleDebug      # app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:assembleRelease    # app/build/outputs/apk/release/app-release.apk（已签名、R8）
+./gradlew :app:assembleDebug      # app/build/outputs/apk/debug/app-debug.apk（包名带 .debug）
 ./gradlew :app:testDebugUnitTest  # 单元测试
 ```
 
-`local.properties` 里的 `sdk.dir` 指向本机 Android SDK。release 构建需要自备签名配置。
+`local.properties` 里的 `sdk.dir` 指向本机 Android SDK。
+
+签名配置在 `keystore.properties`，key 在 `keystore/stockpot-release.jks`（密码 `stockpot2026`，
+alias `stockpot`）。这两个文件跟着仓库走：**同一个 key 才能覆盖安装**，删了或换机器生成新 key，
+已经装在手机上的版本就只能卸载重装。
+
+release 开了 R8（包体约 1.5 MB）。`proguard-rules.pro` 里保留了 kotlinx.serialization 的
+`$$serializer` 和模型字段名——那是 `ledger.json` 的 key，不能被混淆掉。
+
+从更早的 debug 包换到 release 时签名不同，需要先在设置里「导出账本」，卸载旧包，装好后再导入。
+
+## 性能上做的几件事
+
+列表滑动卡顿基本都来自「每帧都在做重复的工作」，这一版清掉了这些：
+
+- 金额格式不再每次 `new DecimalFormat` + `BigDecimal`，改手写千分位拼接；`shortDate` 用字符串切片，
+  `dayLabel` / `weekday` 带缓存。一屏几十行金额、42 格日历不再各建一个 formatter。
+- 日历 42 个格子共用一个 `pointerInput`，不再每格挂一个 `Modifier.clickable`（省掉 42 个 ripple 节点）。
+- 柱状图、环形图的比例、颜色、刻度文字都在 `remember` 里算好，绘制阶段只画。
+- 卡片默认只画圆角背景，不再 `clip()` 建图层；只有可点的卡片才 clip（为了 ripple 边界）。
+- 账本模型打了 `@Immutable`，账本没变时列表项可以跳过重组；`LazyColumn` 加了 key 与 contentType。
 
 ## 与桌面端的差别
 

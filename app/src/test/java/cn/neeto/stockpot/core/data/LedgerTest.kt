@@ -182,6 +182,38 @@ class LedgerTest {
     }
 
     @Test
+    fun `money formatting keeps grouping and cents`() {
+        assertEquals("0.00", Fmt.cents(0))
+        assertEquals("0.05", Fmt.cents(5))
+        assertEquals("12.50", Fmt.cents(1250))
+        assertEquals("1,234.56", Fmt.cents(123456))
+        assertEquals("1,000,000.00", Fmt.cents(100_000_000))
+        assertEquals("¥12.50", Fmt.yuan(1250))
+        assertEquals("+¥12.50", Fmt.yuan(1250, signed = true))
+        assertEquals("-¥12.50", Fmt.yuan(-1250))
+    }
+
+    @Test
+    fun `compact amount reads well on calendar cells`() {
+        assertEquals("0", Fmt.compact(0))
+        assertEquals("8", Fmt.compact(800))
+        assertEquals("8.5", Fmt.compact(850))
+        assertEquals("123", Fmt.compact(12_300))
+        assertEquals("123.5", Fmt.compact(12_345))
+        assertEquals("1.2k", Fmt.compact(123_456))
+        assertEquals("23k", Fmt.compact(2_300_000))
+        assertEquals("1.2m", Fmt.compact(123_456_789))
+    }
+
+    @Test
+    fun `short date and day label stay cheap but correct`() {
+        assertEquals("11-23", Fmt.shortDate("2026-11-23"))
+        assertEquals("坏日期", Fmt.shortDate("坏日期"))
+        assertEquals("11月23日 周一", Fmt.dayLabel("2026-11-23"))
+        assertEquals("周一", Fmt.weekday("2026-11-23"))
+    }
+
+    @Test
     fun `desktop ledger json opens, keeps unknown fields ignorable and round trips`() {
         val json = Json {
             ignoreUnknownKeys = true

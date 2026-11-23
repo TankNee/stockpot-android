@@ -1,5 +1,6 @@
 package cn.neeto.stockpot.core.model
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonArray
@@ -33,6 +34,7 @@ object Source {
 }
 
 @Serializable
+@Immutable
 data class Entry(
     val id: String,
     /** `YYYY-MM-DD` */
@@ -71,6 +73,7 @@ data class Entry(
 }
 
 @Serializable
+@Immutable
 data class CategoryDef(
     val name: String,
     /** 空表示顶级分类 */
@@ -107,6 +110,7 @@ object CategoryListSerializer :
 }
 
 @Serializable
+@Immutable
 data class Rule(
     val id: String,
     val pattern: String,
@@ -114,6 +118,7 @@ data class Rule(
 )
 
 @Serializable
+@Immutable
 data class Project(
     val id: String,
     val name: String,
@@ -125,6 +130,7 @@ data class Project(
 )
 
 @Serializable
+@Immutable
 data class Wallet(
     val id: String,
     val name: String,
@@ -138,6 +144,7 @@ data class Wallet(
 )
 
 @Serializable
+@Immutable
 data class ImportRecord(
     val id: String,
     val file: String,
@@ -148,6 +155,7 @@ data class ImportRecord(
 )
 
 @Serializable
+@Immutable
 data class Ledger(
     val entries: List<Entry> = emptyList(),
     @Serializable(with = CategoryListSerializer::class)
