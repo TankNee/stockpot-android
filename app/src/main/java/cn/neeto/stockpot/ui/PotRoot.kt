@@ -91,6 +91,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.data.StockMath
 import cn.neeto.stockpot.core.model.Entry
+import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.core.util.Documents
 import cn.neeto.stockpot.ui.components.Haptic
@@ -213,7 +214,9 @@ fun PotRoot(
         ledger.entries.firstOrNull { it.id == current.id } ?: current
     }
 
-    var undoEntry by remember { mutableStateOf<Entry?>(null) }
+    // 删除的撤销用整份账本快照：删退款行会连带把原消费的已退金额改掉，
+    // 只把那一行放回去账就歪了。
+    var undoSnapshot by remember { mutableStateOf<Ledger?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
 
     val overlay = isOverlay(route)
@@ -276,10 +279,10 @@ fun PotRoot(
         if (stockRoute && ledger.stocks.isNotEmpty()) vm.ensureDaily(ledger.stocks)
     }
 
-    LaunchedEffect(undoEntry) {
-        if (undoEntry != null) {
+    LaunchedEffect(undoSnapshot) {
+        if (undoSnapshot != null) {
             delay(3_600)
-            undoEntry = null
+            undoSnapshot = null
         }
     }
     LaunchedEffect(toast) {
@@ -665,7 +668,7 @@ fun PotRoot(
                 .padding(horizontal = 18.dp, vertical = 12.dp)
                 .padding(bottom = PotBarHeight + 20.dp),
         ) {
-            val pending = undoEntry
+            val pending = undoSnapshot
             AnimatedVisibility(
                 visible = pending != null,
                 enter = slideInVertically(tween(180)) { it } + fadeIn(tween(120)),
@@ -685,9 +688,9 @@ fun PotRoot(
                         Spacer(Modifier.width(6.dp))
                         TextButton(
                             onClick = {
-                                val entry = undoEntry
-                                if (entry != null) vm.restoreEntry(entry)
-                                undoEntry = null
+                                val snapshot = undoSnapshot
+                                if (snapshot != null) vm.restoreLedger(snapshot)
+                                undoSnapshot = null
                             },
                         ) {
                             Text("撤销", fontSize = 14.sp, color = colors.brand, fontWeight = FontWeight.Medium)
@@ -752,7 +755,7 @@ fun PotRoot(
                 toast = "已更新"
             },
             onDelete = { entry ->
-                undoEntry = entry
+                undoSnapshot = ledger
                 vm.deleteEntry(entry.id)
             },
             onAddCategory = { name -> vm.addCategory(name, "", "") },

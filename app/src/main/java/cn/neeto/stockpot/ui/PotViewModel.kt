@@ -61,7 +61,8 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteEntry(id: String) = store.update { LedgerOps.deleteEntry(it, id) }
 
-    fun restoreEntry(entry: Entry) = store.update { LedgerOps.withEntry(it, entry) }
+    /** 删除的撤销：整份账本回滚（删退款行会连带改原消费的已退金额）。 */
+    fun restoreLedger(ledger: Ledger) = store.replaceAll(ledger)
 
     /** 支出 ↔ 退款互相绑定，顺带把退款金额记到支出上。 */
     fun linkRefund(expenseId: String, refundId: String) =
