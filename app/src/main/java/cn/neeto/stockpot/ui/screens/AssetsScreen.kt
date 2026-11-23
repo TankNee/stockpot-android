@@ -5,8 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,28 +16,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,7 +36,6 @@ import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.data.LedgerMath
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Wallet
-import cn.neeto.stockpot.ui.components.Chip
 import cn.neeto.stockpot.ui.components.EmptyState
 import cn.neeto.stockpot.ui.components.Hairline
 import cn.neeto.stockpot.ui.components.PotCard
@@ -55,21 +43,7 @@ import cn.neeto.stockpot.ui.components.SectionTitle
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
 
-/** 账户类型：顺序决定分组顺序，`credit` 单独当负债看。 */
-private val walletKinds = listOf(
-    "debit" to "储蓄卡",
-    "cash" to "现金 / 零钱",
-    "credit" to "信用卡",
-    "investment" to "投资",
-    "pension" to "养老",
-    "provident" to "公积金",
-    "medical" to "医保",
-    "other" to "其他",
-)
-
-fun walletKindLabel(kind: String): String =
-    walletKinds.firstOrNull { it.first == kind }?.second ?: "其他"
-
+/** 负债：信用卡或余额为负。 */
 private fun isLiability(wallet: Wallet): Boolean = wallet.kind == "credit" || wallet.balance < 0
 
 private data class KindTotal(val kind: String, val label: String, val total: Long, val share: Float)
@@ -77,23 +51,22 @@ private data class KindTotal(val kind: String, val label: String, val total: Lon
 @Composable
 fun AssetsScreen(
     ledger: Ledger,
-    onAdd: (name: String, kind: String, institution: String, balance: Long) -> Unit,
-    onUpdate: (Wallet) -> Unit,
-    onDelete: (String) -> Unit,
+    onAdd: () -> Unit,
+    onOpenWallet: (Wallet?) -> Unit,
 ) {
     val colors = LocalPotColors.current
-    var editing by remember { mutableStateOf<Wallet?>(null) }
-    var adding by remember { mutableStateOf(false) }
 
     val wallets = ledger.wallets
-    val net = remember(wallets) { wallets.sumOf { it.balance } }
-    val assets = remember(wallets) { wallets.filter { !isLiability(it) }.sumOf { it.balance } }
-    val debts = remember(wallets) { wallets.filter { isLiability(it) }.sumOf { it.balance } }
+    // 关掉「计入总资产」的账户仍留在列表里，但不参与净资产和构成，只当备注看
+    val counted = wallets.filter { it.countInAssets }
+    val net = remember(counted) { counted.sumOf { it.balance } }
+    val assets = remember(counted) { counted.filter { !isLiability(it) }.sumOf { it.balance } }
+    val debts = remember(counted) { counted.filter { isLiability(it) }.sumOf { it.balance } }
     val entryNet = remember(ledger.entries) { LedgerMath.allTimeNet(ledger.entries) }
 
     // 一张环形图那种「按类型分」的口径，只统计资产侧，负债不进占比
-    val kindTotals = remember(wallets) {
-        val positive = wallets.filter { !isLiability(it) }.groupBy { it.kind }
+    val kindTotals = remember(counted) {
+        val positive = counted.filter { !isLiability(it) }.groupBy { it.kind }
         val base = positive.values.sumOf { list -> list.sumOf { it.balance } }.coerceAtLeast(1L)
         walletKinds.mapNotNull { (kind, label) ->
             val total = positive[kind]?.sumOf { it.balance } ?: 0L
@@ -112,7 +85,7 @@ fun AssetsScreen(
             title = "还没有账户",
             body = "添加银行卡、微信零钱或信用卡，这里就能看到总资产和净资产。余额自己维护，账本只记录钱的流动。",
         ) {
-            PrimaryButton("添加账户", onClick = { adding = true })
+            PrimaryButton("添加账户", onClick = onAdd)
         }
     } else {
         LazyColumn(
@@ -166,7 +139,7 @@ fun AssetsScreen(
                         color = colors.ink3,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { adding = true }) {
+                    TextButton(onClick = onAdd) {
                         Text("添加账户", fontSize = 14.sp, color = colors.brandInk)
                     }
                 }
@@ -195,7 +168,7 @@ fun AssetsScreen(
                 item(key = "c-$label", contentType = "card") {
                     PotCard(padding = PaddingValues(0.dp)) {
                         rows.forEachIndexed { index, wallet ->
-                            WalletRow(wallet = wallet, onClick = { editing = wallet })
+                            WalletRow(wallet = wallet, onClick = { onOpenWallet(wallet) })
                             if (index < rows.lastIndex) {
                                 Box(Modifier.padding(start = 60.dp)) { Hairline() }
                             }
@@ -204,31 +177,6 @@ fun AssetsScreen(
                 }
             }
         }
-    }
-
-    if (adding || editing != null) {
-        AssetEditorDialog(
-            wallet = editing,
-            onDismiss = {
-                adding = false
-                editing = null
-            },
-            onSave = { name, kind, institution, balance ->
-                val target = editing
-                if (target == null) {
-                    onAdd(name, kind, institution, balance)
-                } else {
-                    onUpdate(target.copy(name = name, kind = kind, institution = institution, balance = balance))
-                }
-                adding = false
-                editing = null
-            },
-            onDelete = { wallet ->
-                onDelete(wallet.id)
-                adding = false
-                editing = null
-            },
-        )
     }
 }
 
@@ -351,9 +299,11 @@ private fun WalletRow(wallet: Wallet, onClick: () -> Unit) {
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                listOf(walletKindLabel(wallet.kind), wallet.institution)
-                    .filter { it.isNotEmpty() }
-                    .joinToString("  ·  "),
+                listOfNotNull(
+                    walletKindLabel(wallet.kind),
+                    wallet.institution.ifEmpty { null },
+                    if (wallet.countInAssets) null else "不计入总资产",
+                ).joinToString("  ·  "),
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.ink3,
                 maxLines = 1,
@@ -364,7 +314,11 @@ private fun WalletRow(wallet: Wallet, onClick: () -> Unit) {
         Text(
             Fmt.yuan(wallet.balance),
             style = MoneyStyle.copy(fontSize = 15.sp),
-            color = if (wallet.balance < 0) colors.expense else colors.ink,
+            color = when {
+                wallet.balance < 0 -> colors.expense
+                !wallet.countInAssets -> colors.ink3
+                else -> colors.ink
+            },
         )
         Icon(
             Icons.Outlined.ChevronRight,
@@ -374,144 +328,3 @@ private fun WalletRow(wallet: Wallet, onClick: () -> Unit) {
         )
     }
 }
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun AssetEditorDialog(
-    wallet: Wallet?,
-    onDismiss: () -> Unit,
-    onSave: (name: String, kind: String, institution: String, balance: Long) -> Unit,
-    onDelete: (Wallet) -> Unit,
-) {
-    val colors = LocalPotColors.current
-    var name by remember { mutableStateOf(wallet?.name ?: "") }
-    var institution by remember { mutableStateOf(wallet?.institution ?: "") }
-    var kind by remember { mutableStateOf(wallet?.kind ?: "debit") }
-    var balanceText by remember { mutableStateOf(wallet?.let { Fmt.editYuan(it.balance) } ?: "") }
-    var confirmDelete by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = colors.panel,
-        title = {
-            Text(
-                if (wallet == null) "添加账户" else "编辑账户",
-                style = MaterialTheme.typography.titleLarge,
-                color = colors.ink,
-            )
-        },
-        text = {
-            Column(Modifier.fillMaxWidth()) {
-                TextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("账户名，如 招商银行", color = colors.ink3, fontSize = 14.sp) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    colors = plainFieldColors(),
-                )
-                Spacer(Modifier.height(9.dp))
-                TextField(
-                    value = institution,
-                    onValueChange = { institution = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("机构，可留空", color = colors.ink3, fontSize = 14.sp) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    colors = plainFieldColors(),
-                )
-                Spacer(Modifier.height(9.dp))
-                TextField(
-                    value = balanceText,
-                    onValueChange = { input ->
-                        balanceText = input.filter { it.isDigit() || it == '.' || it == '-' }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("余额，信用卡填负数", color = colors.ink3, fontSize = 14.sp) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    colors = plainFieldColors(),
-                )
-                Spacer(Modifier.height(12.dp))
-                // 固定每行 4 个会把「现金 / 零钱」这种长标签挤出去，交给 FlowRow 自己折行
-                FlowRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    walletKinds.forEach { (value, label) ->
-                        Chip(label = label, active = kind == value, onClick = { kind = value })
-                    }
-                }
-                if (wallet != null) {
-                    Spacer(Modifier.height(2.dp))
-                    TextButton(
-                        onClick = { confirmDelete = true },
-                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
-                    ) {
-                        Icon(
-                            Icons.Outlined.DeleteOutline,
-                            contentDescription = null,
-                            tint = colors.danger,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text("删除这个账户", fontSize = 14.sp, color = colors.danger)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = name.isNotBlank(),
-                onClick = {
-                    val cents = Fmt.parseYuan(balanceText) ?: 0L
-                    onSave(name.trim(), kind, institution.trim(), cents)
-                },
-            ) {
-                Text("保存", fontSize = 15.sp, color = if (name.isNotBlank()) colors.brand else colors.ink3)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消", fontSize = 15.sp, color = colors.ink2) }
-        },
-    )
-
-    if (confirmDelete && wallet != null) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            containerColor = colors.panel,
-            title = { Text("删除「${wallet.name}」？", style = MaterialTheme.typography.titleMedium, color = colors.ink) },
-            text = {
-                Text(
-                    "只是不再统计这个账户的余额，账本里的账目不受影响。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.ink2,
-                    lineHeight = 20.sp,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { onDelete(wallet) }) { Text("删除", fontSize = 15.sp, color = colors.danger) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text("取消", fontSize = 15.sp, color = colors.ink2) }
-            },
-        )
-    }
-}
-
-@Composable
-private fun plainFieldColors() = TextFieldDefaults.colors(
-    focusedContainerColor = LocalPotColors.current.panel2,
-    unfocusedContainerColor = LocalPotColors.current.panel2,
-    focusedIndicatorColor = Color.Transparent,
-    unfocusedIndicatorColor = Color.Transparent,
-    cursorColor = LocalPotColors.current.brand,
-)

@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.model.Entry
+import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.core.util.Documents
 import cn.neeto.stockpot.ui.screens.AssetsScreen
 import cn.neeto.stockpot.ui.screens.EntriesScreen
@@ -72,6 +73,8 @@ import cn.neeto.stockpot.ui.screens.OverviewScreen
 import cn.neeto.stockpot.ui.screens.ProjectDetailScreen
 import cn.neeto.stockpot.ui.screens.ProjectsScreen
 import cn.neeto.stockpot.ui.screens.SettingsScreen
+import cn.neeto.stockpot.ui.screens.WalletEditorScreen
+import cn.neeto.stockpot.ui.screens.WalletKindScreen
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import kotlinx.coroutines.delay
 
@@ -84,10 +87,12 @@ private val tabs = listOf(
     PotTab("settings", "设置", Icons.Outlined.Settings, "外观、分类、规则、导入与备份"),
 )
 
-/** 压在 tab 之上的页面：导入、项目列表、项目详情。 */
+/** 压在 tab 之上的页面：导入、项目列表、项目详情、账户添加。 */
 private const val ROUTE_IMPORT = "import"
 private const val ROUTE_PROJECTS = "projects"
 private const val PROJECT_PREFIX = "project/"
+private const val ROUTE_WALLET_EDIT = "wallet-edit"
+private const val ROUTE_WALLET_KIND = "wallet-kind"
 
 private fun tabIndex(id: String): Int = tabs.indexOfFirst { it.id == id }.let { if (it < 0) 0 else it }
 
@@ -97,12 +102,15 @@ private fun tabIndex(id: String): Int = tabs.indexOfFirst { it.id == id }.let { 
  */
 private fun routeOrder(route: String): Int = when {
     route.startsWith(PROJECT_PREFIX) -> 100
+    route == ROUTE_WALLET_EDIT -> 98
+    route == ROUTE_WALLET_KIND -> 97
     route == ROUTE_PROJECTS || route == ROUTE_IMPORT -> 90
     else -> tabIndex(route)
 }
 
 private fun isOverlay(route: String): Boolean =
-    route == ROUTE_IMPORT || route == ROUTE_PROJECTS || route.startsWith(PROJECT_PREFIX)
+    route == ROUTE_IMPORT || route == ROUTE_PROJECTS || route.startsWith(PROJECT_PREFIX) ||
+        route == ROUTE_WALLET_EDIT || route == ROUTE_WALLET_KIND
 
 /** tab 访问轨迹，用来接管返回键：去哪儿的顺序都记着，返回就一步步退。 */
 private const val TRAIL_SEP = "|"
@@ -132,6 +140,10 @@ fun PotRoot(
     var entriesMonth by rememberSaveable { mutableStateOf(Fmt.currentMonth()) }
     var entriesDate by rememberSaveable { mutableStateOf<String?>(null) }
 
+    // 账户编辑的草稿：放在这里，去「选择类型」转一圈回来还能接着填
+    var walletDraft by remember { mutableStateOf<Wallet?>(null) }
+    var walletIsNew by remember { mutableStateOf(true) }
+
     var editorOpen by remember { mutableStateOf(false) }
     var editorEntry by remember { mutableStateOf<Entry?>(null) }
     var editorDate by rememberSaveable { mutableStateOf(Fmt.today()) }
@@ -144,6 +156,8 @@ fun PotRoot(
     val subtitle = when {
         route == ROUTE_IMPORT -> "微信 / 支付宝 / iCost / 通用 CSV"
         route == ROUTE_PROJECTS -> "按一件事看花销，不改账目本身"
+        route == ROUTE_WALLET_KIND -> "账户类型"
+        route == ROUTE_WALLET_EDIT -> "余额自己维护，账本只记录钱的流动"
         else -> activeTab.hint
     }
 
@@ -177,6 +191,18 @@ fun PotRoot(
     }
 
     fun openProject(id: String) = openOverlay(PROJECT_PREFIX + id)
+
+    /** 传 null 是新增账户（先挑类型），传账户是编辑。 */
+    fun openWallet(wallet: Wallet?) {
+        walletIsNew = wallet == null
+        if (wallet == null) {
+            walletDraft = Wallet(id = "", name = "", kind = "debit")
+            openOverlay(ROUTE_WALLET_KIND)
+        } else {
+            walletDraft = wallet
+            openOverlay(ROUTE_WALLET_EDIT)
+        }
+    }
 
     val trail = remember(tabTrail) { decodeTrail(tabTrail) }
 
@@ -295,9 +321,8 @@ fun PotRoot(
 
                         current == "assets" -> AssetsScreen(
                             ledger = ledger,
-                            onAdd = vm::addWallet,
-                            onUpdate = vm::updateWallet,
-                            onDelete = vm::deleteWallet,
+                            onAdd = { openWallet(null) },
+                            onOpenWallet = { openWallet(it) },
                         )
 
                         current == "settings" -> SettingsScreen(
@@ -321,6 +346,38 @@ fun PotRoot(
                             incoming = incomingFile,
                             onIncomingConsumed = onIncomingConsumed,
                             onBack = { popOverlay() },
+                        )
+
+                        current == ROUTE_WALLET_KIND -> WalletKindScreen(
+                            selected = walletDraft?.kind ?: "debit",
+                            onPick = { kind ->
+                                walletDraft = walletDraft?.copy(kind = kind)
+                                if (parentRoute == ROUTE_WALLET_EDIT) {
+                                    // 编辑途中回来改类型，退回到原来那张表
+                                    popOverlay()
+                                } else {
+                                    // 新增的第一步：接着进表单，返回仍然回到资产页
+                                    route = ROUTE_WALLET_EDIT
+                                }
+                            },
+                            onBack = { popOverlay() },
+                        )
+
+                        current == ROUTE_WALLET_EDIT -> WalletEditorScreen(
+                            wallet = walletDraft ?: Wallet(id = "", name = "", kind = "debit"),
+                            isNew = walletIsNew,
+                            onBack = { popOverlay() },
+                            onPickKind = { openOverlay(ROUTE_WALLET_KIND) },
+                            onSave = { updated ->
+                                if (walletIsNew) vm.addWallet(updated) else vm.updateWallet(updated)
+                                toast = if (walletIsNew) "账户已添加" else "账户已更新"
+                                popOverlay()
+                            },
+                            onDelete = { wallet ->
+                                vm.deleteWallet(wallet.id)
+                                toast = "账户已删除"
+                                popOverlay()
+                            },
                         )
 
                         current.startsWith(PROJECT_PREFIX) -> ProjectDetailScreen(

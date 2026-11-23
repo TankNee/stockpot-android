@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -68,7 +70,7 @@ import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
 
 /** 记一笔 / 改一笔。同一个表单，`existing` 为空就是新建。 */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun EntryEditorSheet(
     ledger: Ledger,
@@ -93,6 +95,14 @@ fun EntryEditorSheet(
     var projectId by remember { mutableStateOf(existing?.projectId ?: "") }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
+
+    // 账户候选：资产页里勾了「记账时可被选择」的账户优先，再补上历史导入留下的账户名
+    val accountCandidates = remember(ledger.wallets, ledger.accounts) {
+        (ledger.wallets.filter { it.selectable }.map { it.name } + ledger.accounts)
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(4)
+    }
 
     val amount = Fmt.parseYuan(amountText) ?: 0L
     val canSave = amount > 0
@@ -275,11 +285,14 @@ fun EntryEditorSheet(
                 placeholder = "比如 微信零钱",
                 onValueChange = { account = it },
             )
-            if (ledger.accounts.isNotEmpty()) {
+            if (accountCandidates.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ledger.accounts.take(3).forEach { name ->
-                        Chip(label = name, active = account == name, onClick = { account = name })
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    accountCandidates.forEach { candidate ->
+                        Chip(label = candidate, active = account == candidate, onClick = { account = candidate })
                     }
                 }
             }

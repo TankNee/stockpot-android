@@ -252,15 +252,14 @@ object LedgerOps {
 
     /* ------------------------------ 钱包 ------------------------------ */
 
-    fun addWallet(wallets: List<Wallet>, name: String, kind: String, institution: String, balance: Long): List<Wallet> {
-        val clean = name.trim()
+    fun addWallet(wallets: List<Wallet>, draft: Wallet): List<Wallet> {
+        val clean = draft.name.trim()
         if (clean.isEmpty()) return wallets
-        return wallets + Wallet(
-            id = newId("wlt"),
+        return wallets + draft.copy(
+            id = if (draft.id.isEmpty()) newId("wlt") else draft.id,
             name = clean,
-            kind = kind,
-            institution = institution.trim(),
-            balance = balance,
+            institution = draft.institution.trim(),
+            note = draft.note.trim(),
             updatedAt = Fmt.stamp(),
         )
     }

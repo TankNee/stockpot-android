@@ -140,6 +140,10 @@ data class Wallet(
     /** 分。信用卡把欠款记成负数，净资产就不用特判 */
     val balance: Long = 0,
     val note: String = "",
+    /** 关掉之后余额只在本页显示，不进净资产和资产构成 */
+    val countInAssets: Boolean = true,
+    /** 记账时的账户候选里是否出现 */
+    val selectable: Boolean = true,
     val updatedAt: String = "",
 )
 

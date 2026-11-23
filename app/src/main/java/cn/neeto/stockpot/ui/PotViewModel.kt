@@ -90,8 +90,8 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
 
     /* ------------------------------ 钱包 ------------------------------ */
 
-    fun addWallet(name: String, kind: String, institution: String, balance: Long) = store.update {
-        it.copy(wallets = LedgerOps.addWallet(it.wallets, name, kind, institution, balance))
+    fun addWallet(draft: Wallet) = store.update {
+        it.copy(wallets = LedgerOps.addWallet(it.wallets, draft))
     }
 
     fun updateWallet(wallet: Wallet) = store.update {
