@@ -1,14 +1,14 @@
 # Stockpot Mobile
 
 桌面记账软件 [Stockpot](../stockpot) 的安卓客户端。原生 Kotlin + Jetpack Compose，
-**本地优先**：账本是一份可读的 JSON，存在应用私有目录里，不登录就永远不出这台手机；
+**本地优先**：账本存在应用私有目录的一份 SQLite 数据库里，不登录就永远不出这台手机；
 登录是**可选项**，登录之后整份账本同步到自己的服务器（[stockpot-server](../stockpot-server)）。
 行情和汇率是另一件事，那是只读的公共接口，不需要账号。
 
 金额一律用 Barlow（DIN 那一挂的窄体数字，票据上的味道）：数字等宽，位数变化不会让整行跳；
 一行放不下的金额按可用宽度缩字号，不会被省略号截断。
 
-界面语言和账本口径跟桌面端一致，`ledger.json` 双向互通：
+界面语言和账本口径跟桌面端一致，`ledger.json` 双向互通：库是库，导出的是 JSON，
 手机导出的账本可以直接丢给桌面端打开，桌面端的账本也能合并进手机。
 
 ## 功能
@@ -139,7 +139,7 @@ iCost、通用 CSV、桌面端 `ledger.json`。导入前先预览（新增/重�
 - **两台设备都改了同一条** — 条目取并集，冲突的那条看本机自上次同步后有没有动过：
   没动过就以云端为准，动过就以本机为准。宁可留一条旧的，也不让刚记的一笔被旧快照盖掉。
 - **服务器是自己的** — 默认 `https://api.stockpot.neeto.cn`，在登录页那一栏可以改成任意自建地址
-  （`STOCKPOT_SERVER` 也能在打包时改默认值）。服务端就是一个 Express + 一个 JSON 文件，
+  （`STOCKPOT_SERVER` 也能在打包时改默认值）。服务端就是一个 Express + 一份 SQLite，
   代码和部署说明在 [stockpot-server](../stockpot-server)。
 - **退出登录** — 只清登录状态，本机账本一个字都不动；云端那份也还在。
 
@@ -234,9 +234,13 @@ App 这边不经过应用商店，也不需要登录：
 字段名与桌面端 `ledger.json` 完全一致（camelCase），老版本里 `categories` 是纯字符串数组，
 两种都能读。
 
-落盘方式：`filesDir/ledger.json`，先写 `ledger.json.tmp` 再原子 rename，另存一份
-`ledger.bak.json`；启动时读不出来会先试着读备份，并把坏文件留成 `ledger.corrupt.json`。
-编辑后 180ms 防抖写盘，切到后台立刻 flush。
+落盘方式：`databases/ledger.db`（SQLite）。一次编辑只写动过的那几行——账目按 id 比对新旧两份，
+只 upsert 改过的、只删真没了的；分类、规则这类有序小表顺序变了就整表重写。编辑后 180ms 防抖，
+切到后台立刻 flush。
+
+从 0.16 及以前的版本升上来时，第一次启动会把 `filesDir/ledger.json` 读进库，
+然后把原文件改名成 `ledger.imported.json` 留档——不删，迁移出岔子还能捞回来。
+导出走的仍是 JSON：`ledger.json` 是两端交换用的格式，库里存的是表，不是那份文本。
 
 ## 图标
 
@@ -280,7 +284,8 @@ app/src/main/java/cn/neeto/stockpot/
   core/model/Ledger.kt      账本模型、默认分类树与规则、老格式兼容
   core/data/LedgerMath.kt   金额/日期格式化、月汇总、每日趋势、年度视图
   core/data/LedgerOps.kt    所有编辑操作的纯函数（新增/改/删/分类/规则/项目/钱包/示例数据）
-  core/data/LedgerStore.kt  JSON 落盘：原子写、备份、损坏恢复
+  core/data/LedgerDb.kt     SQLite 建表与读写：账目增量写、小表整表重写、持仓子表
+  core/data/LedgerStore.kt  内存快照 + 防抖落库，老 ledger.json 自动迁移
   core/importer/XlsxReader.kt  极简 xlsx 读取（zip + XmlPullParser，不引 POI）
   core/importer/BillParser.kt  微信/支付宝/iCost/通用 CSV 的行解析
   core/importer/ImportEngine.kt 预览、去重、退款匹配、关键词归类、账本合并

@@ -66,9 +66,11 @@ fun DataScreen(
     var confirmDemo by remember { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
 
-    // 文件大小只在这一页里看个大概，进页面算一次就够
+    // 库文件大小只在这一页里看个大概，进页面算一次就够；-wal/-shm 也归它
     val fileSize = remember(vm.dataPath) {
-        runCatching { File(vm.dataPath).length() }.getOrDefault(0L)
+        runCatching {
+            listOf("", "-wal", "-shm").sumOf { suffix -> File(vm.dataPath + suffix).length() }
+        }.getOrDefault(0L)
     }
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -122,7 +124,7 @@ fun DataScreen(
                     Spacer(Modifier.height(4.dp))
                     Text(
                         buildString {
-                            append("本机账本文件 ")
+                            append("本机数据库 ")
                             append(if (fileSize > 0) humanSize(fileSize) else "（还没写过）")
                         },
                         style = MaterialTheme.typography.labelSmall,
