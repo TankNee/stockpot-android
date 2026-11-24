@@ -1,0 +1,127 @@
+name: Release
+
+# 打 tag 出 APK，并投到自己的更新服务器：
+#   git tag v0.19.2 && git push origin v0.19.2
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    name: 编译 APK 并发布
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # tag 和 build.gradle.kts 里的 versionName 必须一样；
+      # versionCode 从文件里读，不再手抄一遍
+      - name: 读版本号并校验
+        id: ver
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          code=$(grep -m1 'versionCode = ' app/build.gradle.kts | grep -oE '[0-9]+' | head -1)
+          name=$(grep -m1 'versionName = ' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "tag=$tag  versionName=$name  versionCode=$code"
+          if [ "$name" != "$tag" ]; then
+            echo "::error::tag 是 $tag，build.gradle.kts 里是 $name，先统一版本再打 tag"
+            exit 1
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # 签名密钥不进仓库，从 Secrets 里还原；没有它打出来的包装不上也升不了级
+      - name: 还原签名密钥
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "::error::缺 ANDROID_KEYSTORE_BASE64，签不出能覆盖安装的包"
+            exit 1
+          fi
+          mkdir -p keystore
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > keystore/stockpot-release.jks
+          cat > keystore.properties <<EOF
+          storeFile=keystore/stockpot-release.jks
+          storePassword=${STORE_PASSWORD}
+          keyAlias=${KEY_ALIAS}
+          keyPassword=${KEY_PASSWORD}
+          EOF
+
+      - name: 编译
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease --no-daemon --console=plain
+
+      - name: 确认包和签名
+        shell: bash
+        run: |
+          ls -lh app/build/outputs/apk/release/
+          echo "--- 签名信息 ---"
+          /opt/android-sdk/build-tools/*/apksigner verify --print-certs \
+            app/build/outputs/apk/release/app-release.apk | head -5 || true
+
+      # 投到自己的更新服务器，App 里点「检查更新」就能拿到
+      - name: 传到更新服务器
+        shell: bash
+        env:
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+          DEPLOY_BASE: ${{ vars.DEPLOY_BASE }}
+        run: |
+          set -euo pipefail
+          base="${DEPLOY_BASE:-https://api.stockpot.neeto.cn}"
+          version="${{ steps.ver.outputs.name }}"
+          code="${{ steps.ver.outputs.code }}"
+          file="app/build/outputs/apk/release/app-release.apk"
+
+          prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$prev" ]; then
+            body=$(git log --pretty=format:"- %s" "$prev"..HEAD | head -30)
+          else
+            body=$(git log --pretty=format:"- %s" -20 | head -30)
+          fi
+          notes=$(printf '## %s\n\n%s\n' "$version" "$body")
+
+          curl -sS --fail-with-body -X POST \
+            "$base/api/v1/deploy/android?version=$version&code=$code&arch=arm64-v8a&packaging=apk" \
+            -H "authorization: Bearer $DEPLOY_TOKEN" \
+            -H "x-notes-b64: $(printf '%s' "$notes" | base64 | tr -d '\n')" \
+            --data-binary @"$file"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stockpot-android-${{ github.ref_name }}
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Stockpot ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: app/build/outputs/apk/release/app-release.apk
