@@ -127,6 +127,7 @@ import cn.neeto.stockpot.ui.screens.SettingsScreen
 import cn.neeto.stockpot.ui.screens.StockAccountScreen
 import cn.neeto.stockpot.ui.screens.StockDetailScreen
 import cn.neeto.stockpot.ui.screens.StocksScreen
+import cn.neeto.stockpot.ui.screens.ThemeScreen
 import cn.neeto.stockpot.ui.screens.TitleSwapScreen
 import cn.neeto.stockpot.ui.screens.WalletEditorScreen
 import cn.neeto.stockpot.ui.screens.WalletKindScreen
@@ -166,6 +167,8 @@ private const val ROUTE_RULES = "settings/rules"
 private const val ROUTE_DATA = "settings/data"
 /** 退款配对：待配退款、可退支出、已配对三堆东西都在这一页 */
 private const val ROUTE_REFUNDS = "settings/refunds"
+/** 主题：五套配色各一张缩略图和预设色，深浅也在这一页 */
+private const val ROUTE_THEME = "settings/theme"
 private const val STOCK_ACC_PREFIX = "stock-acc/"
 private const val STOCK_DETAIL_PREFIX = "stock/"
 
@@ -183,7 +186,7 @@ private fun routeOrder(route: String): Int = when {
     route.startsWith(STOCK_ACC_PREFIX) -> 95
     route == ROUTE_STOCKS -> 94
     route == ROUTE_CATEGORIES || route == ROUTE_RULES || route == ROUTE_DATA ||
-        route == ROUTE_REFUNDS -> 93
+        route == ROUTE_REFUNDS || route == ROUTE_THEME -> 93
     route == ROUTE_ACCOUNT -> 92
     route == ROUTE_TITLE_SWAP -> 91
     route == ROUTE_PROJECTS || route == ROUTE_IMPORT -> 90
@@ -196,7 +199,7 @@ private fun isOverlay(route: String): Boolean =
         route == ROUTE_STOCKS || route.startsWith(STOCK_ACC_PREFIX) ||
         route.startsWith(STOCK_DETAIL_PREFIX) || route == ROUTE_TITLE_SWAP ||
         route == ROUTE_ACCOUNT || route == ROUTE_CATEGORIES || route == ROUTE_RULES ||
-        route == ROUTE_DATA || route == ROUTE_REFUNDS
+        route == ROUTE_DATA || route == ROUTE_REFUNDS || route == ROUTE_THEME
 
 /** tab 访问轨迹，用来接管返回键：去哪儿的顺序都记着，返回就一步步退。 */
 private const val TRAIL_SEP = "|"
@@ -575,6 +578,12 @@ fun PotRoot(
                                         onOpenRules = { openOverlay(ROUTE_RULES) },
                                         onOpenRefunds = { openOverlay(ROUTE_REFUNDS) },
                                         onOpenData = { openOverlay(ROUTE_DATA) },
+                                        onOpenTheme = { openOverlay(ROUTE_THEME) },
+                                    )
+
+                                    current == ROUTE_THEME -> ThemeScreen(
+                                        vm = vm,
+                                        onBack = { popOverlay() },
                                     )
 
                                     current == ROUTE_DATA -> DataScreen(

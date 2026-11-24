@@ -202,6 +202,36 @@ class LedgerTest {
     }
 
     @Test
+    fun `fund earnings and money moving are not refunds`() {
+        val ledger = emptyLedger().copy(
+            entries = listOf(
+                Entry(id = "e1", date = "2026-11-01", kind = Kind.EXPENSE, amount = 10_000),
+                // 余额宝的收益发放：是收入、也不计入合计，但它是本金在生息
+                Entry(
+                    id = "y1", date = "2026-11-02", kind = Kind.INCOME, amount = 128,
+                    category = "理财收益", counterparty = "余额宝", excluded = true,
+                ),
+                // 换个口袋放钱，也不是退款
+                Entry(
+                    id = "y2", date = "2026-11-03", kind = Kind.INCOME, amount = 5_000,
+                    category = "其他", note = "余额宝转出", excluded = true,
+                ),
+                // 标了不计入、但既不是退款也不像退款的收入，不该混进来
+                Entry(id = "y3", date = "2026-11-03", kind = Kind.INCOME, amount = 2_000, excluded = true),
+                // 真退款还留着
+                Entry(id = "r1", date = "2026-11-04", kind = Kind.INCOME, amount = 3_000, category = "退款", excluded = true),
+            ),
+        )
+        assertEquals(listOf("r1"), LedgerOps.refundOverview(ledger).pendingRefunds.map { it.id })
+
+        // 挑对面的时候也不该把余额宝的收益摆出来（没写分类的 y3 还能当候选，让人自己认）
+        val expense = ledger.entries.first { it.id == "e1" }
+        val loose = LedgerOps.refundCandidates(ledger, expense, strict = false).map { it.id }
+        assertTrue(loose.none { it == "y1" || it == "y2" })
+        assertTrue(loose.contains("r1"))
+    }
+
+    @Test
     fun `reimporting the same bill adds nothing`() {
         val bill = rows(
             listOf("2026-11-01 10:00", "瑞幸", "咖啡", "支出", "19.50", "零钱", "支付成功", "W9"),

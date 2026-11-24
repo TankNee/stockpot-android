@@ -37,6 +37,17 @@ data class EntryInput(
  */
 object LedgerOps {
 
+    /** 分类 / 对方 / 备注里出现这些词，就算一笔退款。 */
+    private val REFUND_WORDS = listOf("退款", "退货", "退回", "退还", "返现", "补偿")
+
+    /** 理财口袋：收益算收入，但那是本金在生息。 */
+    private val FUND_WORDS = listOf(
+        "余额宝", "余利宝", "零钱通", "理财通", "基金", "理财", "收益", "分红", "利息",
+    )
+
+    /** 搬钱：换口袋、还账、充值提现，钱进来了但没人退东西。 */
+    private val MOVING_WORDS = listOf("转入", "转出", "还款", "充值", "提现", "转账")
+
     fun newId(prefix: String): String =
         prefix + "_" + UUID.randomUUID().toString().replace("-", "").take(18)
 
@@ -215,7 +226,9 @@ object LedgerOps {
         return pool.asSequence()
             .filter { candidate ->
                 if (target) {
-                    candidate.kind != Kind.EXPENSE && candidate.refundLinkId.isEmpty()
+                    // 只认收入：余额宝、零钱通那种「收益」也是收入，但它是理财的口袋在动，
+                    // 跟退款不是一回事，混进来就永远配不掉了
+                    candidate.kind == Kind.INCOME && candidate.refundLinkId.isEmpty() && !isFundRow(candidate)
                 } else {
                     candidate.kind == Kind.EXPENSE && !candidate.excluded && candidate.refundLinkId.isEmpty()
                 }
@@ -242,20 +255,37 @@ object LedgerOps {
     /**
      * 这条是不是「退款」那一侧。
      *
-     * 账本里没有专门的是否退款字段，只能靠约定认：导入时退款行会写成
-     * 分类「退款」+ 不计入合计；手动补的记录可能是收入、也可能挂在别的分类下，
-     * 只要已经配过对就也算。转账是两边跑的钱，不算退款。
+     * 账本里没有专门的是否退款字段，只能靠约定认。条款收紧过一次：
+     * 以前是「只要不是支出、又标了不计入合计」就算，结果余额宝的收益发放、
+     * 零钱通的转入也被当成待配对的退款堆在那一页上，金额永远凑不上，看着像坏账。
+     * 现在必须是**收入**，而且得真的像退款：分类以「退款」开头、备注里写了退，
+     * 或者已经配过对。理财类的一律不算——那是换个口袋放钱，不是钱退回来。
      */
-    fun isRefundRow(entry: Entry): Boolean =
-        entry.kind != Kind.EXPENSE && entry.kind != Kind.TRANSFER &&
-            (entry.refundLinkId.isNotEmpty() || entry.category.startsWith("退款") || entry.excluded)
+    fun isRefundRow(entry: Entry): Boolean {
+        if (entry.kind != Kind.INCOME) return false
+        val hay = "${entry.category} ${entry.counterparty} ${entry.note}"
+        if (isFundRow(entry)) return false
+        return entry.refundLinkId.isNotEmpty() ||
+            entry.category.startsWith("退款") ||
+            REFUND_WORDS.any { hay.contains(it) }
+    }
+
+    /**
+     * 理财口袋的钱：余额宝、零钱通、基金申赎……收益算收入，
+     * 但那是本金在生息，不是哪笔消费退回来的。搬钱的（转入转出、还款、充值）
+     * 也归进来，它们在账单里同样长得像「一笔进账」。
+     */
+    fun isFundRow(entry: Entry): Boolean {
+        val hay = "${entry.category} ${entry.counterparty} ${entry.note}"
+        return FUND_WORDS.any { hay.contains(it) } || MOVING_WORDS.any { hay.contains(it) }
+    }
 
     /** 已配对的一对：支出 + 退款。 */
     data class RefundPair(val expense: Entry, val refund: Entry)
 
     /** 退款页那三组列表。 */
     data class RefundOverview(
-        /** 还没配对的退款 */
+        /** 还没配对的退款（只有收入类，理财进出的不算） */
         val pendingRefunds: List<Entry>,
         /** 还能退的支出（amount - refundedAmount > 0） */
         val openExpenses: List<Entry>,

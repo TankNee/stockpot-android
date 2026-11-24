@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.SaveAlt
 import androidx.compose.material.icons.outlined.FormatShapes
 import androidx.compose.material.icons.outlined.Label
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -99,7 +100,6 @@ import cn.neeto.stockpot.ui.components.SheetActions
 import cn.neeto.stockpot.ui.components.rememberHaptics
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.PotPalette
-import cn.neeto.stockpot.ui.theme.paletteSwatches
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,6 +112,7 @@ fun SettingsScreen(
     onOpenRules: () -> Unit,
     onOpenRefunds: () -> Unit,
     onOpenData: () -> Unit,
+    onOpenTheme: () -> Unit,
 ) {
     val colors = LocalPotColors.current
     val ledger by vm.ledger.collectAsStateWithLifecycle()
@@ -150,64 +151,32 @@ fun SettingsScreen(
         }
 
         item {
-            PotCard {
-                SectionTitle("外观")
-                Spacer(Modifier.height(10.dp))
-                IconSegmented(
-                    options = listOf(
-                        IconOption("system", "跟随系统", Icons.Outlined.BrightnessAuto),
-                        IconOption("light", "浅色", Icons.Outlined.LightMode),
-                        IconOption("dark", "深色", Icons.Outlined.DarkMode),
-                    ),
-                    selected = prefs.theme,
-                    onSelect = vm::setTheme,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(14.dp))
+            PotCard(padding = PaddingValues(0.dp)) {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp)) {
+                    SectionTitle("外观")
+                    Spacer(Modifier.height(10.dp))
+                    IconSegmented(
+                        options = listOf(
+                            IconOption("system", "跟随系统", Icons.Outlined.BrightnessAuto),
+                            IconOption("light", "浅色", Icons.Outlined.LightMode),
+                            IconOption("dark", "深色", Icons.Outlined.DarkMode),
+                        ),
+                        selected = prefs.theme,
+                        onSelect = vm::setTheme,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
                 Hairline()
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "配色",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.ink3,
+                // 五套纸各带一张缩略图和三个预设色，塞在这一屏里会挤成一团，
+                // 所以只留一行入口，选的时候去「主题」页看实物
+                SettingsRow(
+                    title = "主题",
+                    subtitle = "${PotPalette.of(prefs.palette).label} · ${darkLabel(prefs.theme)} · " +
+                        "${PotPalette.entries.size} 套配色",
+                    icon = Icons.Outlined.Palette,
+                    onClick = onOpenTheme,
                 )
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PotPalette.entries.forEach { palette ->
-                        PaletteChoice(
-                            palette = palette,
-                            selected = PotPalette.of(prefs.palette) == palette,
-                            modifier = Modifier.weight(1f),
-                            onClick = { vm.setPalette(palette.id) },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier
-                            .size(26.dp)
-                            .clip(CircleShape)
-                            .background(colors.brandTint),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("支", fontSize = 11.sp, color = colors.expense)
-                    }
-                    Spacer(Modifier.width(6.dp))
-                    Text("支出用红", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
-                    Spacer(Modifier.width(14.dp))
-                    Box(
-                        Modifier
-                            .size(26.dp)
-                            .clip(CircleShape)
-                            .background(colors.income.copy(alpha = 0.14f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("收", fontSize = 11.sp, color = colors.income)
-                    }
-                    Spacer(Modifier.width(6.dp))
-                    Text("收入用绿", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
-                }
             }
         }
 
@@ -283,7 +252,7 @@ fun SettingsScreen(
                 )
                 Hairline(Modifier.padding(start = 16.dp))
                 val pendingRefunds = ledger.entries.count {
-                    LedgerOps.isRefundRow(it) && it.refundLinkId.isEmpty()
+                    !it.archived && LedgerOps.isRefundRow(it) && it.refundLinkId.isEmpty()
                 }
                 SettingsRow(
                     title = "退款配对",
@@ -797,62 +766,9 @@ private fun IconChoice(
     }
 }
 
-/**
- * 一张纸样的选择卡：四个小圆点预报这套配色，下面是名字和一句说明。
- * 换配色的时候整页颜色会自己淡过去（PotTheme 里做的插值），这里只负责选。
- */
-@Composable
-private fun PaletteChoice(
-    palette: PotPalette,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    val colors = LocalPotColors.current
-    val haptics = rememberHaptics()
-    val shape = RoundedCornerShape(14.dp)
-    Column(
-        modifier = modifier
-            .clip(shape)
-            .background(if (selected) colors.brandTint else colors.panel2)
-            .then(
-                if (selected) {
-                    Modifier.border(1.dp, colors.brand.copy(alpha = 0.45f), shape)
-                } else {
-                    Modifier
-                },
-            )
-            .clickable {
-                if (!selected) haptics(Haptic.Tap)
-                onClick()
-            }
-            .padding(horizontal = 12.dp, vertical = 11.dp),
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            paletteSwatches(palette).forEach { swatch ->
-                Box(
-                    Modifier
-                        .size(15.dp)
-                        .clip(CircleShape)
-                        .background(swatch),
-                )
-            }
-        }
-        Spacer(Modifier.height(9.dp))
-        Text(
-            palette.label,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-            color = if (selected) colors.brandInk else colors.ink,
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            palette.hint,
-            style = MaterialTheme.typography.labelSmall,
-            color = colors.ink3,
-            lineHeight = 15.sp,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
+/** 设置页那行副标题用的：当前是深是浅。 */
+private fun darkLabel(theme: String): String = when (theme) {
+    "dark" -> "深色"
+    "light" -> "浅色"
+    else -> "跟随系统"
 }

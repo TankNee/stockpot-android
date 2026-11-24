@@ -10,8 +10,8 @@ import kotlinx.coroutines.flow.asStateFlow
 data class AppSettings(
     /** system | light | dark */
     val theme: String = "system",
-    /** 纸样（配色），见 PotPalette；macaron | paper */
-    val palette: String = "macaron",
+    /** 纸样（配色），见 PotPalette；pistachio | butter | peach | lemon-ash | mint */
+    val palette: String = "pistachio",
     /** 打开条目编辑页的动画：fold 折叠 | zoom 缩放 | slide 推入 */
     val editorAnim: String = "fold",
     /**
@@ -39,7 +39,7 @@ class SettingsStore(context: Context) {
     private val _state = MutableStateFlow(
         AppSettings(
             theme = prefs.getString("theme", "system") ?: "system",
-            palette = prefs.getString("palette", "macaron") ?: "macaron",
+            palette = prefs.getString("palette", "pistachio") ?: "pistachio",
             editorAnim = prefs.getString("editorAnim", "fold") ?: "fold",
             swapWords = readWords(),
             serverUrl = readServer(),

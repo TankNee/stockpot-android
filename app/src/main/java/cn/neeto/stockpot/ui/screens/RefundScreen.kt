@@ -115,17 +115,8 @@ fun RefundScreen(
         return ChronoUnit.DAYS.between(date, today) <= range.days
     }
 
-    fun matches(entry: Entry): Boolean {
-        if (keyword.isEmpty()) return true
-        val hay = buildString {
-            append(entry.counterparty).append(' ')
-            append(entry.note).append(' ')
-            append(entry.category).append(' ')
-            append(entry.account).append(' ')
-            append(Fmt.cents(entry.amount))
-        }
-        return hay.contains(keyword, ignoreCase = true)
-    }
+    fun matches(entry: Entry): Boolean =
+        keyword.isEmpty() || refundHay(entry).contains(keyword, ignoreCase = true)
 
     /** 「金额能对上」：退款正好等于这笔还没退的余额，或者反过来。 */
     fun hasTwin(entry: Entry): Boolean = if (entry.kind == Kind.EXPENSE) {
@@ -213,6 +204,15 @@ fun RefundScreen(
                 )
             }
             Spacer(Modifier.height(8.dp))
+            if (tab == RefundTab.Refunds) {
+                Text(
+                    text = "只收收入类的退款；余额宝、零钱通这种理财进出的不在这儿。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.ink3,
+                    lineHeight = 16.sp,
+                )
+                Spacer(Modifier.height(6.dp))
+            }
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -568,13 +568,19 @@ private fun CandidateSheet(
     val isExpense = entry.kind == Kind.EXPENSE
     // 金额对不上不代表配错：跨平台退、分期退、手续费吃掉一点都常见
     var loose by remember { mutableStateOf(false) }
-    val candidates = remember(ledger.entries, entry.id, loose) {
+    // 候选可能几十条，挑的时候也得能搜
+    var query by remember { mutableStateOf("") }
+    val keyword = query.trim()
+    val all = remember(ledger.entries, entry.id, loose) {
         LedgerOps.refundCandidates(
             ledger = ledger,
             entry = entry,
             limit = if (loose) 40 else 24,
             strict = !loose,
         )
+    }
+    val candidates = remember(all, keyword) {
+        if (keyword.isEmpty()) all else all.filter { refundHay(it).contains(keyword, ignoreCase = true) }
     }
 
     PotSheet(onDismiss = onDismiss) {
@@ -594,6 +600,12 @@ private fun CandidateSheet(
             color = colors.ink3,
         )
         Spacer(Modifier.height(10.dp))
+        SearchBar(
+            value = query,
+            placeholder = "搜平台、分类、账户或金额",
+            onValueChange = { query = it },
+        )
+        Spacer(Modifier.height(8.dp))
         Chip(
             label = if (loose) "金额不一样也显示" else "只看金额对得上",
             active = loose,
@@ -609,10 +621,10 @@ private fun CandidateSheet(
                     .padding(horizontal = 14.dp, vertical = 18.dp),
             ) {
                 Text(
-                    text = if (isExpense) {
-                        "没有能配的退款了。可能那一条还没导入，或者已经配给了别的消费。"
-                    } else {
-                        "没有能配的消费了。先把那笔支出记上，再回来关联。"
+                    text = when {
+                        keyword.isNotEmpty() -> "没搜到「$keyword」。换个词，或者把搜索清掉看看全部。"
+                        isExpense -> "没有能配的退款了。可能那一条还没导入，或者已经配给了别的消费。"
+                        else -> "没有能配的消费了。先把那笔支出记上，再回来关联。"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.ink3,
@@ -638,6 +650,15 @@ private fun CandidateSheet(
         }
         Spacer(Modifier.height(8.dp))
     }
+}
+
+/** 搜索用的那串字：平台、备注、分类、账户、金额都能搜到。金额按元写，25.00 这种。 */
+private fun refundHay(entry: Entry): String = buildString {
+    append(entry.counterparty).append(' ')
+    append(entry.note).append(' ')
+    append(entry.category).append(' ')
+    append(entry.account).append(' ')
+    append(Fmt.cents(entry.amount))
 }
 
 /** 放开金额之后，差多少得写出来：自己认账也要有个依据。 */
