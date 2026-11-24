@@ -217,6 +217,17 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
 
     fun unlinkRefund(id: String) = store.update { LedgerOps.unlinkRefund(it, id) }
 
+    /** 退款页上的一键配对，返回真正配上的对数。 */
+    fun autoPairRefunds(): Int {
+        var linked = 0
+        store.update { ledger ->
+            val (next, count) = LedgerOps.autoPairRefunds(ledger)
+            linked = count
+            next
+        }
+        return linked
+    }
+
     /* ------------------------------ 分类 ------------------------------ */
 
     fun addCategory(name: String, parent: String, kind: String) = store.update {

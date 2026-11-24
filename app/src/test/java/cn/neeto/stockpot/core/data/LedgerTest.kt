@@ -92,6 +92,80 @@ class LedgerTest {
     }
 
     @Test
+    fun `refund overview splits pending refunds, refundable expenses and pairs`() {
+        val ledger = emptyLedger().copy(
+            entries = listOf(
+                Entry(id = "e1", date = "2026-11-01", kind = Kind.EXPENSE, amount = 30_000),
+                // 已经退完的支出不该出现在「可退」里
+                Entry(id = "e2", date = "2026-11-02", kind = Kind.EXPENSE, amount = 5_000, refundedAmount = 5_000),
+                Entry(
+                    id = "e3", date = "2026-11-03", kind = Kind.EXPENSE, amount = 12_000,
+                    refundedAmount = 6_000, refundLinkId = "r2",
+                ),
+                Entry(id = "r1", date = "2026-11-05", kind = Kind.INCOME, amount = 10_000, category = "退款", excluded = true),
+                Entry(
+                    id = "r2", date = "2026-11-06", kind = Kind.INCOME, amount = 6_000,
+                    category = "退款", excluded = true, refundLinkId = "e3",
+                ),
+                // 账户互转也是「不计入合计」，但它不是退款
+                Entry(id = "t1", date = "2026-11-07", kind = Kind.TRANSFER, amount = 1_000, excluded = true),
+            ),
+        )
+        val overview = LedgerOps.refundOverview(ledger)
+        assertEquals(listOf("r1"), overview.pendingRefunds.map { it.id })
+        assertEquals(listOf("e3", "e1"), overview.openExpenses.map { it.id })
+        assertEquals(listOf("e3"), overview.pairs.map { it.expense.id })
+        assertEquals("r2", overview.pairs.single().refund.id)
+    }
+
+    @Test
+    fun `manual pairing can look past a mismatched amount`() {
+        val ledger = emptyLedger().copy(
+            entries = listOf(
+                Entry(id = "e1", date = "2026-11-01", kind = Kind.EXPENSE, amount = 25_000),
+                Entry(id = "r1", date = "2026-11-03", kind = Kind.INCOME, amount = 30_000, category = "退款", excluded = true),
+            ),
+        )
+        val expense = ledger.entries.first { it.id == "e1" }
+        // 默认不给「退款比消费还大」的，多退的 50 块得人来判断
+        assertTrue(LedgerOps.refundCandidates(ledger, expense).isEmpty())
+        assertEquals(listOf("r1"), LedgerOps.refundCandidates(ledger, expense, strict = false).map { it.id })
+    }
+
+    @Test
+    fun `auto pairing only takes unambiguous exact matches`() {
+        val ledger = emptyLedger().copy(
+            entries = listOf(
+                Entry(id = "e1", date = "2026-11-01", kind = Kind.EXPENSE, amount = 10_000),
+                Entry(id = "e2", date = "2026-11-02", kind = Kind.EXPENSE, amount = 20_000),
+                Entry(id = "r1", date = "2026-11-03", kind = Kind.INCOME, amount = 10_000, category = "退款", excluded = true),
+                Entry(id = "r2", date = "2026-11-04", kind = Kind.INCOME, amount = 15_000, category = "退款", excluded = true),
+            ),
+        )
+        val (next, count) = LedgerOps.autoPairRefunds(ledger)
+        assertEquals(1, count)
+        assertEquals("r1", next.entries.first { it.id == "e1" }.refundLinkId)
+        assertEquals(10_000L, next.entries.first { it.id == "e1" }.refundedAmount)
+        // 150 那笔没有金额刚好的消费，留着让人挑
+        assertEquals("", next.entries.first { it.id == "r2" }.refundLinkId)
+        assertEquals(-20_000L, LedgerMath.allTimeNet(next.entries))
+    }
+
+    @Test
+    fun `auto pairing skips the refund when two expenses look the same`() {
+        val ledger = emptyLedger().copy(
+            entries = listOf(
+                Entry(id = "e1", date = "2026-11-01", kind = Kind.EXPENSE, amount = 10_000),
+                Entry(id = "e2", date = "2026-11-02", kind = Kind.EXPENSE, amount = 10_000),
+                Entry(id = "r1", date = "2026-11-03", kind = Kind.INCOME, amount = 10_000, category = "退款", excluded = true),
+            ),
+        )
+        val (next, count) = LedgerOps.autoPairRefunds(ledger)
+        assertEquals(0, count)
+        assertEquals("", next.entries.first { it.id == "r1" }.refundLinkId)
+    }
+
+    @Test
     fun `deleting a refund row gives the money back to the purchase`() {
         val ledger = emptyLedger().copy(
             entries = listOf(

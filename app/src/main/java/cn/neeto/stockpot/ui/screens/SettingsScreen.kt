@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.neeto.stockpot.BuildConfig
+import cn.neeto.stockpot.core.data.LedgerOps
 import cn.neeto.stockpot.core.model.CategoryDef
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
@@ -90,6 +91,7 @@ import cn.neeto.stockpot.ui.components.PrimaryButton
 import cn.neeto.stockpot.ui.components.PotCard
 import cn.neeto.stockpot.ui.components.SectionTitle
 import cn.neeto.stockpot.ui.components.Segmented
+import androidx.compose.material.icons.outlined.Undo
 import cn.neeto.stockpot.ui.components.SheetField
 import cn.neeto.stockpot.ui.components.SheetGrabber
 import cn.neeto.stockpot.ui.components.PotSheet
@@ -108,6 +110,7 @@ fun SettingsScreen(
     onOpenAccount: () -> Unit,
     onOpenCategories: () -> Unit,
     onOpenRules: () -> Unit,
+    onOpenRefunds: () -> Unit,
     onOpenData: () -> Unit,
 ) {
     val colors = LocalPotColors.current
@@ -277,6 +280,20 @@ fun SettingsScreen(
                     subtitle = "${ledger.rules.size} 条 · 导入时最长命中的规则胜出",
                     icon = Icons.Outlined.Label,
                     onClick = onOpenRules,
+                )
+                Hairline(Modifier.padding(start = 16.dp))
+                val pendingRefunds = ledger.entries.count {
+                    LedgerOps.isRefundRow(it) && it.refundLinkId.isEmpty()
+                }
+                SettingsRow(
+                    title = "退款配对",
+                    subtitle = if (pendingRefunds == 0) {
+                        "没有待配对的退款"
+                    } else {
+                        "$pendingRefunds 笔退款还没对上账 · 手动挑对应的那一笔"
+                    },
+                    icon = Icons.Outlined.Undo,
+                    onClick = onOpenRefunds,
                 )
             }
         }

@@ -209,7 +209,7 @@ object LedgerOps {
      * 「金额一样 → 日期近」排，最可能是它。日期只用来排序，不做硬过滤——
      * 跨月退款很常见。
      */
-    fun refundCandidates(ledger: Ledger, entry: Entry, limit: Int = 24): List<Entry> {
+    fun refundCandidates(ledger: Ledger, entry: Entry, limit: Int = 24, strict: Boolean = true): List<Entry> {
         val pool = ledger.entries.filter { it.id != entry.id && !it.archived }
         val target = entry.kind == Kind.EXPENSE
         return pool.asSequence()
@@ -217,16 +217,18 @@ object LedgerOps {
                 if (target) {
                     candidate.kind != Kind.EXPENSE && candidate.refundLinkId.isEmpty()
                 } else {
-                    candidate.kind == Kind.EXPENSE && candidate.refundLinkId.isEmpty() &&
-                        candidate.amount - candidate.refundedAmount >= entry.amount
+                    candidate.kind == Kind.EXPENSE && !candidate.excluded && candidate.refundLinkId.isEmpty()
                 }
             }
             .filter { candidate ->
-                if (target) {
+                // strict = false 是「手动挑」：金额对不上也让人看见，自己认就行
+                if (!strict) {
+                    true
+                } else if (target) {
                     // 退款不能比这笔消费还大（部分退款的余量够就行）
                     candidate.amount <= entry.amount - entry.refundedAmount
                 } else {
-                    true
+                    candidate.amount - candidate.refundedAmount >= entry.amount
                 }
             }
             .sortedWith(
@@ -235,6 +237,71 @@ object LedgerOps {
             )
             .take(limit)
             .toList()
+    }
+
+    /**
+     * 这条是不是「退款」那一侧。
+     *
+     * 账本里没有专门的是否退款字段，只能靠约定认：导入时退款行会写成
+     * 分类「退款」+ 不计入合计；手动补的记录可能是收入、也可能挂在别的分类下，
+     * 只要已经配过对就也算。转账是两边跑的钱，不算退款。
+     */
+    fun isRefundRow(entry: Entry): Boolean =
+        entry.kind != Kind.EXPENSE && entry.kind != Kind.TRANSFER &&
+            (entry.refundLinkId.isNotEmpty() || entry.category.startsWith("退款") || entry.excluded)
+
+    /** 已配对的一对：支出 + 退款。 */
+    data class RefundPair(val expense: Entry, val refund: Entry)
+
+    /** 退款页那三组列表。 */
+    data class RefundOverview(
+        /** 还没配对的退款 */
+        val pendingRefunds: List<Entry>,
+        /** 还能退的支出（amount - refundedAmount > 0） */
+        val openExpenses: List<Entry>,
+        /** 已经配好的对 */
+        val pairs: List<RefundPair>,
+    )
+
+    fun refundOverview(ledger: Ledger): RefundOverview {
+        val live = ledger.entries.filter { !it.archived }
+        val pending = live.filter { isRefundRow(it) && it.refundLinkId.isEmpty() }
+            .sortedWith(entryOrder)
+        val openExpenses = live.filter {
+            it.kind == Kind.EXPENSE && !it.excluded && it.amount - it.refundedAmount > 0
+        }.sortedWith(entryOrder)
+        // 只从支出那一侧收一遍，省得同一对算两次
+        val byId = live.associateBy { it.id }
+        val pairs = live.asSequence()
+            .filter { it.kind == Kind.EXPENSE && it.refundLinkId.isNotEmpty() }
+            .mapNotNull { expense ->
+                byId[expense.refundLinkId]?.let { RefundPair(expense, it) }
+            }
+            .sortedWith(compareByDescending<RefundPair> { it.refund.date })
+            .toList()
+        return RefundOverview(pending, openExpenses, pairs)
+    }
+
+    /**
+     * 一键配对：只认「金额正好、日期最近且唯一」的那种，拿不准的留给人挑。
+     *
+     * 同一笔支出可能被退好几次，一笔一笔往账本里叠，剩下的余额不够就跳过；
+     * 退款比余额还大也不自动配——那是要人来判断的账。
+     */
+    fun autoPairRefunds(ledger: Ledger, maxDays: Long = 120): Pair<Ledger, Int> {
+        var next = ledger
+        var linked = 0
+        val pending = refundOverview(ledger).pendingRefunds.sortedBy { it.date }
+        for (refund in pending) {
+            val candidates = refundCandidates(next, refund, limit = 8, strict = true)
+                .filter { it.amount == refund.amount && distance(it.date, refund.date) <= maxDays }
+            // 只有一个候选才动手；两个都能对上说明这笔账得人看
+            val target = candidates.singleOrNull() ?: continue
+            if (next.entries.firstOrNull { it.id == refund.id }?.refundLinkId?.isNotEmpty() == true) continue
+            next = linkRefund(next, target.id, refund.id)
+            linked++
+        }
+        return if (linked == 0) ledger to 0 else next to linked
     }
 
     /** 两个 `YYYY-MM-DD` 差多少天；解析不了就排到最后。 */

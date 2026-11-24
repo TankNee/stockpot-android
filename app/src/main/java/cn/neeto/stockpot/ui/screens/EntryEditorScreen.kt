@@ -145,9 +145,11 @@ fun EntryEditorScreen(
         if (existing == null || id.isEmpty()) null else ledger.entries.firstOrNull { it.id == id }
     }
     // 退款行：已经配上的、分类写着退款的，以及老版本导入留下的「不计收支」行。
-    // 最后一种没有 link，正好给它一个补配的入口。
-    val isRefundRow = existing != null && existing.kind != Kind.EXPENSE &&
-        (existing.refundLinkId.isNotEmpty() || existing.category.startsWith("退款") || existing.excluded)
+    // 判定跟退款页共用一份，免得两边对「什么算退款」有两种说法。
+    val isRefundRow = existing != null && LedgerOps.isRefundRow(existing)
+    // 手工配对对所有账目开放（以前只有「已退过一点」和退款行才看得见这张卡，
+    // 一笔从没配过的新消费根本没入口）
+    val canLinkRefund = existing != null && onLinkRefund != null && existing.kind != Kind.TRANSFER
 
     // 账户候选：资产页里勾了「记账时可被选择」的账户优先，再补上历史导入留下的账户名
     val accountCandidates = remember(ledger.wallets, ledger.accounts) {
@@ -406,7 +408,7 @@ fun EntryEditorScreen(
 
             if (existing != null) {
                 // 退款配对：支出看「退回来的那笔」，退款行看「原来是哪笔消费」
-                if (existing.refundedAmount > 0 || isRefundRow) {
+                if (canLinkRefund || linkedEntry != null || existing.refundedAmount > 0 || isRefundRow) {
                     Spacer(Modifier.height(22.dp))
                     RefundLinkCard(
                         entry = existing,
@@ -471,8 +473,8 @@ fun EntryEditorScreen(
 
     if (showRefundPicker && existing != null) {
         RefundPickerSheet(
+            ledger = ledger,
             entry = existing,
-            candidates = LedgerOps.refundCandidates(ledger, existing),
             onDismiss = { showRefundPicker = false },
             onPick = { other ->
                 showRefundPicker = false
@@ -651,11 +653,13 @@ private fun RefundLinkCard(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        text = if (isRefundRow) {
-                            "这笔记账还没和对应那条配对"
-                        } else {
-                            val at = if (entry.refundedAt.isBlank()) "" else " · 退款于 ${Fmt.shortDate(entry.refundedAt)}"
-                            "已退 ${Fmt.yuan(entry.refundedAmount)}$at"
+                        text = when {
+                            isRefundRow -> "这笔记账还没和对应那条配对"
+                            entry.refundedAmount > 0 -> {
+                                val at = if (entry.refundedAt.isBlank()) "" else " · 退款于 ${Fmt.shortDate(entry.refundedAt)}"
+                                "已退 ${Fmt.yuan(entry.refundedAmount)}$at"
+                            }
+                            else -> "没有关联退款"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = colors.ink,
@@ -665,7 +669,7 @@ private fun RefundLinkCard(
                         text = if (isRefundRow) {
                             "挑出它对应的是哪一条，两条就能互相跳"
                         } else {
-                            "还没对上具体是哪一笔，挑一条退款记录来配对"
+                            "这笔退过钱的话，挑一条退款记录来配对"
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = colors.ink3,
@@ -673,8 +677,13 @@ private fun RefundLinkCard(
                     )
                 }
                 if (linkEnabled) {
-                    Spacer(Modifier.width(10.dp))
-                    Text("去关联", fontSize = 13.sp, color = colors.brand)
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        Icons.Outlined.ChevronRight,
+                        contentDescription = null,
+                        tint = colors.brand,
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
         }
@@ -686,16 +695,26 @@ private fun entryTitle(entry: Entry): String = entry.counterparty.ifEmpty {
     entry.note.ifEmpty { entry.category.ifEmpty { "未命名" } }
 }
 
-/** 手动配对的候选弹层：支出挑退款，退款挑支出。 */
+/** 手动配对的候选弹层：支出挑退款，退款挑支出。金额对不上也能放开挑。 */
 @Composable
 private fun RefundPickerSheet(
+    ledger: Ledger,
     entry: Entry,
-    candidates: List<Entry>,
     onDismiss: () -> Unit,
     onPick: (Entry) -> Unit,
 ) {
     val colors = LocalPotColors.current
     val isExpense = entry.kind == Kind.EXPENSE
+    // 金额对不上不代表配错：跨平台、分期退、手续费吃掉一点都常见
+    var loose by remember { mutableStateOf(false) }
+    val candidates = remember(ledger.entries, entry.id, loose) {
+        LedgerOps.refundCandidates(
+            ledger = ledger,
+            entry = entry,
+            limit = if (loose) 40 else 24,
+            strict = !loose,
+        )
+    }
     PotSheet(onDismiss = onDismiss) {
         Text(
             text = if (isExpense) "挑一笔退款" else "挑原来的消费",
@@ -705,12 +724,18 @@ private fun RefundPickerSheet(
         Spacer(Modifier.height(6.dp))
         Text(
             text = if (isExpense) {
-                "同平台上金额对得上、还没配过对的退款。配好之后两条都能互相跳，钱只算一次。"
+                "还没配过对的退款。配好之后两条都能互相跳，钱只算一次。"
             } else {
-                "还没退完、金额够这一笔的消费。配好之后这笔退款会从合计里让开，回到那笔消费的退款额里。"
+                "还没配过对的消费。配好之后这笔退款会从合计里让开，回到那笔消费的退款额里。"
             },
             style = MaterialTheme.typography.bodySmall,
             color = colors.ink3,
+        )
+        Spacer(Modifier.height(10.dp))
+        Chip(
+            label = if (loose) "金额不一样也显示" else "只看金额对得上",
+            active = loose,
+            onClick = { loose = !loose },
         )
         Spacer(Modifier.height(12.dp))
         if (candidates.isEmpty()) {
@@ -723,7 +748,7 @@ private fun RefundPickerSheet(
             ) {
                 Text(
                     text = if (isExpense) {
-                        "没找到金额合适的退款记录。可能这笔是从桌面端折进来的，或者退款那一条还没导入。"
+                        "没找到能配的退款记录。可能那一条还没导入，或者已经配给别的消费了。"
                     } else {
                         "没找到能配的消费。试试先把那笔支出记上，再来关联。"
                     },
@@ -739,8 +764,24 @@ private fun RefundPickerSheet(
                     .verticalScroll(rememberScrollState()),
             ) {
                 candidates.forEach { candidate ->
-                    EntryRow(entry = candidate, showDate = true, onClick = { onPick(candidate) })
-                    Hairline()
+                    Column {
+                        EntryRow(entry = candidate, showDate = true, onClick = { onPick(candidate) })
+                        // 放开金额之后，把差多少写出来：自己认账也要有个依据
+                        if (loose) {
+                            val gap = if (isExpense) {
+                                (entry.amount - entry.refundedAmount) - candidate.amount
+                            } else {
+                                (candidate.amount - candidate.refundedAmount) - entry.amount
+                            }
+                            Text(
+                                text = if (gap == 0L) "金额一致" else "差 ${Fmt.yuan(kotlin.math.abs(gap))}",
+                                fontSize = 11.sp,
+                                color = colors.ink3,
+                                modifier = Modifier.padding(start = 66.dp, bottom = 8.dp),
+                            )
+                        }
+                        Hairline()
+                    }
                 }
             }
         }
