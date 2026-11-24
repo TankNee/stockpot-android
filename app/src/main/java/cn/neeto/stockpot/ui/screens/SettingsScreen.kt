@@ -48,6 +48,9 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,6 +76,7 @@ import cn.neeto.stockpot.core.net.Updater
 import cn.neeto.stockpot.core.settings.AppIcon
 import cn.neeto.stockpot.ui.PotViewModel
 import androidx.compose.material.icons.outlined.BrightnessAuto
+import androidx.compose.material.icons.outlined.NewReleases
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.ArrowUpward
@@ -121,6 +125,24 @@ fun SettingsScreen(
     val avatar by vm.avatar.collectAsStateWithLifecycle()
     val update by vm.update.collectAsStateWithLifecycle()
 
+    // 更新说明是弹层，不是内联展开；手动点「检查更新」查到新版才自动弹，
+    // 开机那次静默检查只在「关于」里留一行字，不打断人
+    var updateSheet by remember { mutableStateOf(false) }
+    var manualCheck by remember { mutableStateOf(false) }
+    LaunchedEffect(update.release?.id, update.phase) {
+        if (manualCheck) {
+            when {
+                update.release != null -> {
+                    updateSheet = true
+                    manualCheck = false
+                }
+                // 查完了但没有新版：把标记清掉，免得下次开机检查时冒出来
+                update.phase != Updater.Phase.CHECKING -> manualCheck = false
+                else -> Unit
+            }
+        }
+    }
+
     // 设置页顶上就是「我」：头像和昵称在这里也该看得见，不用点进去
     LaunchedEffect(cloud.signedIn, cloud.account.id, cloud.account.avatarAt) { vm.loadAvatar() }
 
@@ -135,19 +157,6 @@ fun SettingsScreen(
                 avatar = avatar,
                 onOpen = onOpenAccount,
             )
-        }
-
-        // 有新版本就紧随其后：藏在「关于」里没人会翻到
-        if (update.release != null) {
-            item {
-                UpdateBanner(
-                    update = update,
-                    onDownload = { vm.downloadUpdate() },
-                    onInstall = {
-                        if (!vm.installUpdate()) onToast(update.error ?: "打不开安装器")
-                    },
-                )
-            }
         }
 
         item {
@@ -324,11 +333,11 @@ fun SettingsScreen(
                 Spacer(Modifier.height(8.dp))
                 UpdateSection(
                     update = update,
-                    onCheck = { vm.checkUpdate(manual = true) },
-                    onDownload = { vm.downloadUpdate() },
-                    onInstall = {
-                        if (!vm.installUpdate()) onToast(update.error ?: "打不开安装器")
+                    onCheck = {
+                        manualCheck = true
+                        vm.checkUpdate(manual = true)
                     },
+                    onOpen = { updateSheet = true },
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -345,6 +354,16 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+
+    // 说明放在弹层里：这张卡的高度不动，页面上别的东西也就不会被顶走
+    if (updateSheet && update.release != null) {
+        UpdateSheet(
+            state = update,
+            onDismiss = { updateSheet = false },
+            onDownload = { vm.downloadUpdate() },
+            onInstall = { if (!vm.installUpdate()) onToast(update.error ?: "打不开安装器") },
+        )
     }
 }
 
@@ -502,77 +521,23 @@ private fun cloudHint(ui: SyncManager.SyncUi): String = when {
 /* -------------------------------- 更新 -------------------------------- */
 
 /**
- * 有新版本时压在设置页最上面的那条。
- *
- * 一个按钮走完全程：没下就下、下完就装。进度直接写在按钮上，
- * 不铺进度条——这条只是提醒，真要细看可以去下面的「关于」。
- */
-@Composable
-private fun UpdateBanner(
-    update: Updater.State,
-    onDownload: () -> Unit,
-    onInstall: () -> Unit,
-) {
-    val colors = LocalPotColors.current
-    val release = update.release ?: return
-    val downloading = update.phase == Updater.Phase.DOWNLOADING
-    val ready = update.phase == Updater.Phase.DOWNLOADED
-    PotCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "有新版本 ${release.versionName}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = colors.ink,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    when {
-                        downloading -> "正在下载 ${(update.progress * 100).toInt()}%"
-                        ready -> "${sizeText(release.size)} 已下载，点右边安装"
-                        update.phase == Updater.Phase.FAILED -> update.error ?: "下载没成功"
-                        else -> "${sizeText(release.size)} · 不用去应用商店"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (update.phase == Updater.Phase.FAILED) colors.danger else colors.ink3,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Spacer(Modifier.width(10.dp))
-            PrimaryButton(
-                text = when {
-                    downloading -> "${(update.progress * 100).toInt()}%"
-                    ready -> "安装"
-                    update.phase == Updater.Phase.FAILED -> "重试"
-                    else -> "更新"
-                },
-                onClick = {
-                    if (downloading) return@PrimaryButton
-                    if (ready) onInstall() else onDownload()
-                },
-            )
-        }
-    }
-}
-
-/**
  * 关于卡片的上半截：版本号 + 检查更新。
  *
- * 有新版才把说明和按钮摊开——平时这里就一行「已是最新」，
- * 不占地方也不催人升级。强制更新的版本不拦人，只是在说明后面标一句。
+ * 这一行的高度必须稳住。以前一有新版本，说明和按钮就摊在这儿，
+ * 卡片凭空长一截、底下的字全被顶走，看着像点错了什么；
+ * 顶栏还另有一条「有新版本」的横幅，两处一起推更乱。
+ * 现在只留一行状态，说明收进弹层（[UpdateSheet]），想看点一下。
  */
 @Composable
 private fun UpdateSection(
     update: Updater.State,
     onCheck: () -> Unit,
-    onDownload: () -> Unit,
-    onInstall: () -> Unit,
+    onOpen: () -> Unit,
 ) {
     val colors = LocalPotColors.current
     val release = update.release
     val failed = update.phase == Updater.Phase.FAILED
+    val checking = update.phase == Updater.Phase.CHECKING
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
@@ -584,113 +549,49 @@ private fun UpdateSection(
             Spacer(Modifier.height(2.dp))
             Text(
                 text = when {
-                    update.phase == Updater.Phase.CHECKING -> "正在问服务器…"
+                    checking -> "正在问服务器…"
                     update.phase == Updater.Phase.DOWNLOADING ->
-                        "下载中 ${(update.progress * 100).toInt()}%"
-                    update.phase == Updater.Phase.DOWNLOADED -> "安装包已下载，点一下就能装"
+                        "新版本 ${release?.versionName.orEmpty()} 下载中 ${(update.progress * 100).toInt()}%"
+                    update.phase == Updater.Phase.DOWNLOADED -> "新版本已下好，点一下就能装"
                     failed -> update.error ?: "检查更新失败"
-                    release != null -> "有新版本可以装"
+                    release != null -> "有新版本 ${release.versionName} · ${updateSizeText(release.size)}"
                     update.error != null -> update.error.orEmpty()
                     update.checkedAt.isNotBlank() -> "已是最新 · ${syncTimeText(update.checkedAt)}查过"
                     else -> "还没有检查过"
                 },
                 style = MaterialTheme.typography.labelSmall,
-                color = if (failed || (update.error != null && release == null)) colors.danger else colors.ink3,
+                color = when {
+                    failed || (update.error != null && release == null) -> colors.danger
+                    release != null -> colors.brandInk
+                    else -> colors.ink3
+                },
                 lineHeight = 17.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
         Spacer(Modifier.width(8.dp))
-        PotPillButton(
-            text = if (update.phase == Updater.Phase.CHECKING) "检查中" else "检查更新",
-            icon = Icons.Outlined.Refresh,
-            tone = PillTone.Ghost,
-            enabled = update.phase != Updater.Phase.CHECKING && update.phase != Updater.Phase.DOWNLOADING,
-            onClick = onCheck,
-        )
-    }
-
-    if (release == null) return
-
-    Spacer(Modifier.height(8.dp))
-    Hairline()
-    Spacer(Modifier.height(12.dp))
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                "新版本 ${release.versionName}",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = colors.ink,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                buildString {
-                    append(sizeText(release.size))
-                    append(" · code ").append(release.versionCode)
-                    if (release.force) append(" · 强制更新")
+        if (release != null) {
+            PotPillButton(
+                text = when {
+                    update.phase == Updater.Phase.DOWNLOADING -> "${(update.progress * 100).toInt()}%"
+                    update.phase == Updater.Phase.DOWNLOADED -> "安装"
+                    failed -> "重试"
+                    else -> "查看更新"
                 },
-                style = MaterialTheme.typography.labelSmall,
-                color = if (release.force) colors.brandInk else colors.ink3,
+                icon = if (failed) Icons.Outlined.Refresh else Icons.Outlined.NewReleases,
+                onClick = onOpen,
+            )
+        } else {
+            PotPillButton(
+                text = if (checking) "检查中" else "检查更新",
+                icon = Icons.Outlined.Refresh,
+                tone = PillTone.Ghost,
+                enabled = !checking && update.phase != Updater.Phase.DOWNLOADING,
+                onClick = onCheck,
             )
         }
     }
-    if (release.notes.isNotBlank()) {
-        Spacer(Modifier.height(8.dp))
-        Text(
-            release.notes,
-            style = MaterialTheme.typography.bodySmall,
-            color = colors.ink2,
-            lineHeight = 19.sp,
-        )
-    }
-    Spacer(Modifier.height(12.dp))
-
-    when (update.phase) {
-        Updater.Phase.DOWNLOADING -> {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(colors.panel2),
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(update.progress.coerceIn(0f, 1f))
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(colors.brand),
-                )
-            }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "正在下载 ${sizeText(release.size)}…",
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.ink3,
-            )
-        }
-        Updater.Phase.DOWNLOADED -> PrimaryButton(text = "立即安装", onClick = onInstall)
-        Updater.Phase.FAILED -> PrimaryButton(text = "重新下载", onClick = onDownload)
-        Updater.Phase.READY -> PrimaryButton(text = "下载并安装", onClick = onDownload)
-        else -> Unit
-    }
-
-    if (update.needPermission) {
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "系统里给 Stockpot 打开「安装未知应用」，再回来点一次。",
-            style = MaterialTheme.typography.labelSmall,
-            color = colors.ink3,
-            lineHeight = 17.sp,
-        )
-    }
-}
-
-/** 字节数说人话。安装包就那么几个量级，不用做成通用的。 */
-private fun sizeText(bytes: Long): String = when {
-    bytes <= 0L -> "大小未知"
-    bytes < 1024 * 1024 -> "%.0f KB".format(bytes / 1024.0)
-    else -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
 }
 
 /* -------------------------------- 图标 -------------------------------- */
