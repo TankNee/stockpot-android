@@ -20,16 +20,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
+import cn.neeto.stockpot.R
 import cn.neeto.stockpot.core.settings.AppSettings
 
 /**
- * 暖纸、墨色、一个红橙品牌色 —— 和桌面端同一套语气。
- * 支出用红、收入用绿，符合国内记账习惯。
+ * 一套配色 = 纸面（canvas / panel / line）+ 一个品牌色 + 一组图表色。
+ * 深浅是叠在这之上的一层，所以每套纸都要准备 light / dark 两份。
+ *
+ * 支出用红、收入用绿，符合国内记账习惯；两套纸都没有改这个约定，
+ * 只是把红的音量调低了一档。
  */
 data class PotColors(
     val canvas: Color,
@@ -47,22 +52,95 @@ data class PotColors(
     val success: Color,
     val expense: Color,
     val income: Color,
+    /** 图表 / 分类色带用的那一组：同一套纸里挑出来的，放在一起不会打架。 */
+    val chartPalette: List<Color>,
     val onBrand: Color = Color.White,
-) {
-    /** 图表配色：低饱和，和暖纸能待在一起。 */
-    val chartPalette: List<Color>
-        get() = listOf(
-            Color(0xFFC25B3F),
-            Color(0xFFD2A03F),
-            Color(0xFF6E8B5B),
-            Color(0xFF4E7A8A),
-            Color(0xFF8A6B9E),
-            Color(0xFFB5795E),
-            Color(0xFF8A8C63),
-            Color(0xFF9C7A4E),
-        )
+)
+
+/**
+ * 主题纸样。id 存在设置里，改 id 等于让所有老用户的偏好失效，别动。
+ */
+enum class PotPalette(val id: String, val label: String, val hint: String) {
+    Macaron(
+        id = "macaron",
+        label = "马卡龙",
+        hint = "奶油白打底，六个糖色负责点缀",
+    ),
+    Paper(
+        id = "paper",
+        label = "暖纸",
+        hint = "米白配朱砂，和桌面端同一套",
+    ),
+    ;
+
+    companion object {
+        fun of(id: String?): PotPalette = entries.firstOrNull { it.id == id } ?: Macaron
+    }
 }
 
+/**
+ * 马卡龙：高亮度、低饱和 —— 在正色里兑一勺牛奶。
+ * 底色用燕麦奶油白留出呼吸，六个糖色负责图表和标签，品牌色是蜜桃玫瑰。
+ */
+private val macaronLight = PotColors(
+    canvas = Color(0xFFFAF4EC),
+    panel = Color(0xFFFFFDFB),
+    panel2 = Color(0xFFF3EAE0),
+    line = Color(0xFFEDE3D8),
+    lineStrong = Color(0xFFDED2C4),
+    ink = Color(0xFF3F3038),
+    ink2 = Color(0xFF7B6A72),
+    ink3 = Color(0xFFA29198),
+    brand = Color(0xFFD4637C),
+    brandInk = Color(0xFFA74860),
+    brandTint = Color(0xFFFBE7EB),
+    danger = Color(0xFFC94F63),
+    success = Color(0xFF4F8F72),
+    expense = Color(0xFFC94F63),
+    income = Color(0xFF4F8F72),
+    chartPalette = listOf(
+        Color(0xFFE9A6B4), // 蜜桃粉
+        Color(0xFF9FC4E3), // 云朵蓝
+        Color(0xFFA9CB9B), // 开心果绿
+        Color(0xFFEFD08C), // 奶黄
+        Color(0xFFBEAFDD), // 香芋紫
+        Color(0xFF8FCFC1), // 薄荷
+        Color(0xFFF0B694), // 杏子
+        Color(0xFFD9A8C8), // 玫瑰
+    ),
+)
+
+private val macaronDark = PotColors(
+    canvas = Color(0xFF17141A),
+    panel = Color(0xFF1F1B23),
+    panel2 = Color(0xFF272230),
+    line = Color(0xFF332C3B),
+    lineStrong = Color(0xFF433A4D),
+    ink = Color(0xFFF5EEF1),
+    ink2 = Color(0xFFC1B5BC),
+    ink3 = Color(0xFF928690),
+    brand = Color(0xFFF095AC),
+    brandInk = Color(0xFFF8C4D2),
+    brandTint = Color(0xFF33212A),
+    danger = Color(0xFFEF8FA0),
+    success = Color(0xFF9ACFAF),
+    expense = Color(0xFFEF8FA0),
+    income = Color(0xFF9ACFAF),
+    chartPalette = listOf(
+        Color(0xFFD98FA1),
+        Color(0xFF8FB4D2),
+        Color(0xFF9DC08F),
+        Color(0xFFD9BE7C),
+        Color(0xFFB3A4D2),
+        Color(0xFF7FC0B3),
+        Color(0xFFDCA684),
+        Color(0xFFC99AB8),
+    ),
+    // 粉底上写白字读不出来，深色主题里反着来：糖色底、梅子色的字
+    onBrand = Color(0xFF2C1721),
+)
+
+/** 暖纸：米白 + 墨色 + 朱砂，和桌面端同一套语气。 */
 private val paperLight = PotColors(
     canvas = Color(0xFFF4F1EC),
     panel = Color(0xFFFFFDF9),
@@ -79,6 +157,16 @@ private val paperLight = PotColors(
     success = Color(0xFF3F7A54),
     expense = Color(0xFFC0392B),
     income = Color(0xFF3F7A54),
+    chartPalette = listOf(
+        Color(0xFFC25B3F),
+        Color(0xFFD2A03F),
+        Color(0xFF6E8B5B),
+        Color(0xFF4E7A8A),
+        Color(0xFF8A6B9E),
+        Color(0xFFB5795E),
+        Color(0xFF8A8C63),
+        Color(0xFF9C7A4E),
+    ),
 )
 
 private val paperDark = PotColors(
@@ -97,9 +185,30 @@ private val paperDark = PotColors(
     success = Color(0xFF8FC2A4),
     expense = Color(0xFFEF7A68),
     income = Color(0xFF8FC2A4),
+    chartPalette = listOf(
+        Color(0xFFD97A5E),
+        Color(0xFFDDB35E),
+        Color(0xFF8FA87B),
+        Color(0xFF6F97A6),
+        Color(0xFFA78DB8),
+        Color(0xFFCE9379),
+        Color(0xFFA3A57D),
+        Color(0xFFB8946A),
+    ),
 )
 
-val LocalPotColors = staticCompositionLocalOf { paperLight }
+/** 设置页里那排小色块：拿品牌色 + 三个图表色，一眼看出这套纸是什么味道。 */
+fun paletteSwatches(palette: PotPalette): List<Color> = when (palette) {
+    PotPalette.Macaron -> macaronLight.chartPalette.take(3) + macaronLight.brand
+    PotPalette.Paper -> paperLight.chartPalette.take(3) + paperLight.brand
+}
+
+private fun paletteColors(palette: PotPalette, dark: Boolean): PotColors = when (palette) {
+    PotPalette.Macaron -> if (dark) macaronDark else macaronLight
+    PotPalette.Paper -> if (dark) paperDark else paperLight
+}
+
+val LocalPotColors = staticCompositionLocalOf { macaronLight }
 
 val PotShapes = Shapes(
     extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
@@ -109,13 +218,24 @@ val PotShapes = Shapes(
     extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
 )
 
+/**
+ * 金额字体：Barlow（DIN 那一挂的窄体几何无衬线，银行、票据上的数字长这样）。
+ * 数字是 tabular 的，位数变化不会让整行左右跳；行高给得紧一点，大金额不至于把卡片撑开。
+ * 只有拉丁数字和符号走这套，中文还是系统字 —— Barlow 里没有汉字。
+ */
+private val MoneyFont = FontFamily(
+    Font(R.font.barlow_medium, FontWeight.Medium),
+    Font(R.font.barlow_semibold, FontWeight.SemiBold),
+    Font(R.font.barlow_bold, FontWeight.Bold),
+)
+
 /** 金额一律用等宽数字，位数变化不会让整行跳动。 */
 val MoneyStyle = TextStyle(
-    fontFamily = FontFamily.Monospace,
+    fontFamily = MoneyFont,
     fontWeight = FontWeight.Medium,
     fontSize = 17.sp,
     lineHeight = 22.sp,
-    letterSpacing = (-0.2).sp,
+    letterSpacing = (0.1).sp,
     fontFeatureSettings = "tnum",
 )
 
@@ -196,7 +316,7 @@ fun PotTheme(settings: AppSettings, content: @Composable () -> Unit) {
         "light" -> false
         else -> isSystemInDarkTheme()
     }
-    val target = if (dark) paperDark else paperLight
+    val target = paletteColors(PotPalette.of(settings.palette), dark)
     val canvas by animateColorAsState(target.canvas, tween(240), label = "canvas")
     val panel by animateColorAsState(target.panel, tween(240), label = "panel")
     val panel2 by animateColorAsState(target.panel2, tween(240), label = "panel2")
@@ -208,6 +328,11 @@ fun PotTheme(settings: AppSettings, content: @Composable () -> Unit) {
     val brand by animateColorAsState(target.brand, tween(240), label = "brand")
     val brandInk by animateColorAsState(target.brandInk, tween(240), label = "brandInk")
     val brandTint by animateColorAsState(target.brandTint, tween(240), label = "brandTint")
+    // 换纸的时候涨跌色也要跟着走，不然红的先跳、底下的米白慢慢淡，看着像掉帧
+    val danger by animateColorAsState(target.danger, tween(240), label = "danger")
+    val success by animateColorAsState(target.success, tween(240), label = "success")
+    val expense by animateColorAsState(target.expense, tween(240), label = "expense")
+    val income by animateColorAsState(target.income, tween(240), label = "income")
     val colors = target.copy(
         canvas = canvas,
         panel = panel,
@@ -220,6 +345,10 @@ fun PotTheme(settings: AppSettings, content: @Composable () -> Unit) {
         brand = brand,
         brandInk = brandInk,
         brandTint = brandTint,
+        danger = danger,
+        success = success,
+        expense = expense,
+        income = income,
     )
 
     val scheme = if (dark) {

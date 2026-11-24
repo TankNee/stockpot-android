@@ -1,7 +1,8 @@
 package cn.neeto.stockpot.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,7 +27,13 @@ import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 
-/** 一行流水。所有列表共用，保证同一个账目在哪儿看都长一样。 */
+/**
+ * 一行流水。所有列表共用，保证同一个账目在哪儿看都长一样。
+ *
+ * `onLongClick` 是删除入口：列表里点一行是编辑，长按才出删除确认，
+ * 免得手滑点两下就把一笔账弄没了。
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun EntryRow(
     entry: Entry,
@@ -34,8 +41,12 @@ fun EntryRow(
     showDate: Boolean = false,
     projectName: String? = null,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val colors = LocalPotColors.current
+    val haptics = rememberHaptics()
+    // 点开编辑页时动画要落回这一行的位置，先把自己在屏幕上的位置登记一下
+    val anchors = LocalRowAnchors.current
     val title = entry.counterparty.ifEmpty {
         entry.note.ifEmpty { entry.category.ifEmpty { "未命名" } }
     }
@@ -56,7 +67,22 @@ fun EntryRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .then(if (onClick != null && anchors != null) Modifier.rowAnchor(entry.id, anchors) else Modifier)
+            .then(
+                if (onClick != null || onLongClick != null) {
+                    Modifier.combinedClickable(
+                        onClick = { onClick?.invoke() },
+                        onLongClick = onLongClick?.let {
+                            {
+                                haptics(Haptic.Confirm)
+                                it()
+                            }
+                        },
+                    )
+                } else {
+                    Modifier
+                },
+            )
             .padding(horizontal = 16.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

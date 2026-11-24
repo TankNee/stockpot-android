@@ -50,10 +50,17 @@ import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.util.Documents
 import cn.neeto.stockpot.ui.PickResult
 import cn.neeto.stockpot.ui.PotViewModel
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
+import cn.neeto.stockpot.ui.components.PotPillButton
+import cn.neeto.stockpot.ui.components.PillTone
 import cn.neeto.stockpot.ui.components.Chip
 import cn.neeto.stockpot.ui.components.Hairline
+import cn.neeto.stockpot.ui.components.GhostButton
+import cn.neeto.stockpot.ui.components.PrimaryButton
 import cn.neeto.stockpot.ui.components.PotCard
 import cn.neeto.stockpot.ui.components.SectionTitle
+import cn.neeto.stockpot.ui.components.overlayBottomPadding
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
 import kotlinx.coroutines.Dispatchers
@@ -119,7 +126,12 @@ fun ImportScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 108.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 2.dp,
+            bottom = overlayBottomPadding(),
+        ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
@@ -269,7 +281,7 @@ fun ImportScreen(
                                 color = colors.ink3,
                             )
                         }
-                        TextButton(onClick = { outcome = null }) { Text("好", fontSize = 14.sp, color = colors.brandInk) }
+                        PotPillButton(text = "好", icon = Icons.Outlined.Check, onClick = { outcome = null })
                     }
                 }
             }
@@ -411,7 +423,7 @@ private fun BillPreviewCard(
         }
         Spacer(Modifier.height(14.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onCancel) { Text("取消", color = colors.ink2) }
+            PotPillButton(text = "取消", icon = Icons.Outlined.Close, tone = PillTone.Ghost, onClick = onCancel)
             Spacer(Modifier.weight(1f))
             PrimaryButton(
                 text = if (preview.rows - preview.duplicates <= 0) "没有新记录" else "导入 ${preview.rows - preview.duplicates} 笔",
@@ -456,7 +468,7 @@ private fun LedgerPreviewCard(
         )
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onCancel) { Text("取消", color = colors.ink2) }
+            PotPillButton(text = "取消", icon = Icons.Outlined.Close, tone = PillTone.Ghost, onClick = onCancel)
             Spacer(Modifier.weight(1f))
             PrimaryButton("合并进账本", onConfirm)
         }

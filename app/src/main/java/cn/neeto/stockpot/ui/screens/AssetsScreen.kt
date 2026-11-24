@@ -37,8 +37,12 @@ import cn.neeto.stockpot.core.data.LedgerMath
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.core.model.signedBalance
+import androidx.compose.material.icons.outlined.Add
+import cn.neeto.stockpot.ui.components.PotPillButton
 import cn.neeto.stockpot.ui.components.EmptyState
 import cn.neeto.stockpot.ui.components.Hairline
+import cn.neeto.stockpot.ui.components.GhostButton
+import cn.neeto.stockpot.ui.components.PrimaryButton
 import cn.neeto.stockpot.ui.components.PotCard
 import cn.neeto.stockpot.ui.components.SectionTitle
 import cn.neeto.stockpot.ui.theme.LocalPotColors
@@ -210,9 +214,11 @@ fun AssetsScreen(
                         color = colors.ink3,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = onAdd) {
-                        Text("添加账户", fontSize = 14.sp, color = colors.brandInk)
-                    }
+                    PotPillButton(
+                        text = "添加账户",
+                        icon = Icons.Outlined.Add,
+                        onClick = onAdd,
+                    )
                 }
             }
 

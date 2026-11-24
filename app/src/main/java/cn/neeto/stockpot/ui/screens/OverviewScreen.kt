@@ -2,12 +2,14 @@ package cn.neeto.stockpot.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,7 +19,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.ShowChart
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -45,15 +49,25 @@ import cn.neeto.stockpot.core.data.YearMonthTotal
 import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoAwesome
+import cn.neeto.stockpot.ui.components.PotPillButton
+import cn.neeto.stockpot.ui.components.PillTone
 import cn.neeto.stockpot.ui.components.DailyBars
+import cn.neeto.stockpot.ui.components.DailyLine
 import cn.neeto.stockpot.ui.components.Donut
 import cn.neeto.stockpot.ui.components.EmptyState
 import cn.neeto.stockpot.ui.components.EntryRow
 import cn.neeto.stockpot.ui.components.Hairline
 import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.MonthCalendar
+import cn.neeto.stockpot.ui.components.MoneyText
 import cn.neeto.stockpot.ui.components.MonthStepper
+import cn.neeto.stockpot.ui.components.MonthSwipe
+import cn.neeto.stockpot.ui.components.GhostButton
 import cn.neeto.stockpot.ui.components.PotCard
+import cn.neeto.stockpot.ui.components.PrimaryButton
+import cn.neeto.stockpot.ui.components.PotPullToRefresh
 import cn.neeto.stockpot.ui.components.SectionTitle
 import cn.neeto.stockpot.ui.components.Segmented
 import cn.neeto.stockpot.ui.components.Sparkline
@@ -68,6 +82,7 @@ private data class ProjectPeek(val id: String, val name: String, val expense: Lo
 fun OverviewScreen(
     ledger: Ledger,
     onOpenEntry: (Entry) -> Unit,
+    onLongPressEntry: (Entry) -> Unit,
     onOpenDay: (String) -> Unit,
     onOpenMonth: (String) -> Unit,
     onOpenImport: () -> Unit,
@@ -75,6 +90,8 @@ fun OverviewScreen(
     onOpenProject: (String) -> Unit,
     onAddEntry: () -> Unit,
     onLoadDemo: () -> Unit,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
     stockValue: Long,
     stockPnl: Long,
     stockDayPnl: Long,
@@ -87,9 +104,15 @@ fun OverviewScreen(
     var month by rememberSaveable { mutableStateOf(LedgerMath.latestMonth(entries, Fmt.currentMonth())) }
     var range by rememberSaveable { mutableStateOf("month") }
 
+    // 左右滑月和点箭头走同一条路，省得两边各写一遍方向。
+    // 在「年」视角下翻一屏就是一整年：翻一个月的话，年汇总根本不会变，像是没反应
+    fun shift(delta: Long) {
+        month = Fmt.shiftMonth(month, if (range == "year") delta * 12 else delta)
+    }
+
     if (entries.isEmpty()) {
         Column(Modifier.fillMaxWidth()) {
-            MonthStepper(month, { month = Fmt.shiftMonth(month, it) }, Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+            MonthStepper(month, ::shift, Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
             EmptyState(
                 title = "账本还是空的",
                 body = "记一笔试试，或者直接把微信、支付宝的账单导进来。所有数据只存在这台手机上。",
@@ -100,9 +123,12 @@ fun OverviewScreen(
                         GhostButton("导入账单", onOpenImport)
                     }
                     Spacer(Modifier.height(14.dp))
-                    TextButton(onClick = onLoadDemo) {
-                        Text("先看看示例账本", fontSize = 14.sp, color = colors.brandInk)
-                    }
+                    PotPillButton(
+                        text = "先看看示例账本",
+                        icon = Icons.Outlined.AutoAwesome,
+                        tone = PillTone.Ghost,
+                        onClick = onLoadDemo,
+                    )
                 }
             }
         }
@@ -131,27 +157,41 @@ fun OverviewScreen(
     val dailyAverage = if (activeDays > 0) summary.expense / activeDays else 0L
     val biggest = trend.maxByOrNull { it.expense }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 108.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item(key = "stepper", contentType = "bar") {
-            MonthStepper(
+    Column(Modifier.fillMaxWidth()) {
+        // 月份条、月/年切换留在上面不动：滑的是下面的内容，翻月时标签立刻跟着变，
+        // 不会连标签一起晃，也不至于让人以为整页在乱动
+        MonthStepper(
+            month = month,
+            onShift = ::shift,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+            trailing = {
+                Box(Modifier.width(112.dp)) {
+                    Segmented(
+                        options = listOf("month" to "月", "year" to "年"),
+                        selected = range,
+                        onSelect = { range = it },
+                    )
+                }
+            },
+        )
+
+        PotPullToRefresh(
+            isRefreshing = refreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+        ) {
+            MonthSwipe(
                 month = month,
-                onShift = { month = Fmt.shiftMonth(month, it) },
-                modifier = Modifier.padding(horizontal = 0.dp),
-                trailing = {
-                    Box(Modifier.width(112.dp)) {
-                        Segmented(
-                            options = listOf("month" to "月", "year" to "年"),
-                            selected = range,
-                            onSelect = { range = it },
-                        )
-                    }
-                },
-            )
-        }
+                onShift = { shift(it.toLong()) },
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 108.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
 
         item(key = "hero", contentType = "card") {
             HeroCard(
@@ -177,7 +217,6 @@ fun OverviewScreen(
                 DailyCard(
                     trend = trend,
                     peak = biggest?.takeIf { it.expense > 0 }?.let { it.day to it.expense },
-                    onOpenDay = onOpenDay,
                 )
             }
 
@@ -191,7 +230,12 @@ fun OverviewScreen(
         }
 
         item(key = "recent", contentType = "card") {
-            RecentCard(recent = recent, onOpenEntry = onOpenEntry, onOpenAll = { onOpenMonth(month) })
+            RecentCard(
+                recent = recent,
+                onOpenEntry = onOpenEntry,
+                onLongPressEntry = onLongPressEntry,
+                onOpenAll = { onOpenMonth(month) },
+            )
         }
 
         item(key = "stocks", contentType = "card") {
@@ -211,6 +255,9 @@ fun OverviewScreen(
                 onOpenProjects = onOpenProjects,
                 onOpenProject = onOpenProject,
             )
+        }
+                }
+            }
         }
     }
 }
@@ -353,23 +400,51 @@ private fun YearStatCard(yearRows: List<YearMonthTotal>) {
 private fun DailyCard(
     trend: List<DayTotal>,
     peak: Pair<Int, Long>?,
-    onOpenDay: (String) -> Unit,
 ) {
     val colors = LocalPotColors.current
+    val haptics = rememberHaptics()
+    // 柱子和曲线是同一份数据的两种看法：柱子看「哪天花得多」，曲线看「这个月怎么走下来的」。
+    // 默认柱子，点一下（或右上角那个小图标）换成曲线，翻月、切 tab 回来还是上次选的那种。
+    var line by rememberSaveable { mutableStateOf(false) }
+
     PotCard {
         SectionTitle("每日支出", trailing = {
-            Text(
-                text = if (peak != null) "最高 ${peak.first} 日 ${Fmt.yuan(peak.second)}" else "这个月还没有支出",
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.ink3,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (peak != null) "最高 ${peak.first} 日 ${Fmt.yuan(peak.second)}" else "这个月还没有支出",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.ink3,
+                )
+                Spacer(Modifier.width(8.dp))
+                // 图标画的是「点下去会变成什么」，不是当前状态，跟播放/暂停一个路子
+                Icon(
+                    imageVector = if (line) Icons.Outlined.BarChart else Icons.Outlined.ShowChart,
+                    contentDescription = if (line) "换成柱状图" else "换成曲线图",
+                    tint = colors.ink3,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clickable {
+                            haptics(Haptic.Tap)
+                            line = !line
+                        },
+                )
+            }
         })
         Spacer(Modifier.height(8.dp))
-        DailyBars(
-            trend = trend,
-            selectedDate = null,
-            onPick = { onOpenDay(it.date) },
-        )
+        Box(
+            Modifier
+                .fillMaxWidth()
+                // 整块图表都能点：小图标太小，手指落在柱子上也该有反应
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) {
+                    haptics(Haptic.Tap)
+                    line = !line
+                },
+        ) {
+            if (line) DailyLine(trend = trend) else DailyBars(trend = trend)
+        }
     }
 }
 
@@ -451,7 +526,12 @@ private fun CalendarCard(
 }
 
 @Composable
-private fun RecentCard(recent: List<Entry>, onOpenEntry: (Entry) -> Unit, onOpenAll: () -> Unit) {
+private fun RecentCard(
+    recent: List<Entry>,
+    onOpenEntry: (Entry) -> Unit,
+    onLongPressEntry: (Entry) -> Unit,
+    onOpenAll: () -> Unit,
+) {
     val colors = LocalPotColors.current
     PotCard(padding = PaddingValues(0.dp)) {
         Row(
@@ -461,12 +541,19 @@ private fun RecentCard(recent: List<Entry>, onOpenEntry: (Entry) -> Unit, onOpen
             verticalAlignment = Alignment.CenterVertically,
         ) {
             SectionTitle("最近记录", modifier = Modifier.weight(1f))
-            TextButton(onClick = onOpenAll) {
-                Text("全部", fontSize = 14.sp, color = colors.brandInk)
-            }
+            PotPillButton(
+                text = "全部",
+                icon = Icons.Outlined.ChevronRight,
+                tone = PillTone.Ghost,
+                onClick = onOpenAll,
+            )
         }
         recent.forEachIndexed { index, entry ->
-            EntryRow(entry = entry, onClick = { onOpenEntry(entry) })
+            EntryRow(
+                entry = entry,
+                onClick = { onOpenEntry(entry) },
+                onLongClick = { onLongPressEntry(entry) },
+            )
             if (index < recent.lastIndex) {
                 Box(Modifier.padding(start = 64.dp)) { Hairline() }
             }
@@ -492,13 +579,12 @@ private fun ProjectsCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             SectionTitle("项目", modifier = Modifier.weight(1f))
-            TextButton(onClick = onOpenProjects) {
-                Text(
-                    if (projects.isEmpty()) "去创建" else "全部 ${projects.size} 个",
-                    fontSize = 14.sp,
-                    color = colors.brandInk,
-                )
-            }
+            PotPillButton(
+                text = if (projects.isEmpty()) "去创建" else "全部 ${projects.size} 个",
+                icon = if (projects.isEmpty()) Icons.Outlined.Add else Icons.Outlined.ChevronRight,
+                tone = PillTone.Ghost,
+                onClick = onOpenProjects,
+            )
         }
         if (shown.isEmpty()) {
             Text(
@@ -580,11 +666,14 @@ private fun HeroCard(
     PotCard(padding = PaddingValues(18.dp)) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = colors.ink3)
         Spacer(Modifier.height(6.dp))
-        Text(
+        // 大金额也按宽度收：八位数加千分位在 34sp 下会顶出去
+        MoneyText(
             text = Fmt.yuan(expense),
-            style = MoneyStyle.copy(fontSize = 34.sp, fontWeight = FontWeight.SemiBold),
             color = colors.ink,
-            maxLines = 1,
+            maxSize = 34.sp,
+            minSize = 20.sp,
+            weight = FontWeight.SemiBold,
+            modifier = Modifier.fillMaxWidth(),
         )
         Spacer(Modifier.height(6.dp))
         Text(
@@ -600,39 +689,42 @@ private fun HeroCard(
         Hairline()
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth()) {
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(0.95f)) {
                 Text("收入", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
                 Spacer(Modifier.height(3.dp))
-                Text(
+                MoneyText(
                     text = Fmt.yuan(income),
-                    style = MoneyStyle.copy(fontSize = 17.sp),
                     color = colors.income,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    maxSize = 17.sp,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
-            Column(Modifier.weight(1f)) {
+            Spacer(Modifier.width(10.dp))
+            // 结余带正负号，比收入多半位，给它多一档宽度
+            Column(Modifier.weight(1.25f)) {
                 Text("结余", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
                 Spacer(Modifier.height(3.dp))
-                Text(
+                MoneyText(
                     text = Fmt.yuan(net, signed = true),
-                    style = MoneyStyle.copy(fontSize = 17.sp),
                     color = if (net >= 0) colors.income else colors.expense,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    maxSize = 17.sp,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
-            Column(Modifier.weight(1f)) {
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(0.6f)) {
                 Text(
                     if (range == "month") "笔数" else "活跃月",
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.ink3,
+                    maxLines = 1,
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(
                     text = if (range == "month") count.toString() else activeMonths.toString(),
                     style = MoneyStyle.copy(fontSize = 17.sp),
                     color = colors.ink,
+                    maxLines = 1,
                 )
             }
         }
@@ -701,41 +793,5 @@ private fun YearStat(label: String, value: String, hint: String?) {
             Spacer(Modifier.height(2.dp))
             Text(hint, style = MaterialTheme.typography.labelSmall, color = colors.ink3)
         }
-    }
-}
-
-@Composable
-fun PrimaryButton(text: String, onClick: () -> Unit) {
-    val colors = LocalPotColors.current
-    val haptics = rememberHaptics()
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(colors.brand)
-            .clickable {
-                haptics(Haptic.Confirm)
-                onClick()
-            }
-            .padding(horizontal = 20.dp, vertical = 13.dp),
-    ) {
-        Text(text, color = colors.onBrand, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-    }
-}
-
-@Composable
-fun GhostButton(text: String, onClick: () -> Unit) {
-    val colors = LocalPotColors.current
-    val haptics = rememberHaptics()
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(colors.panel)
-            .clickable {
-                haptics(Haptic.Tap)
-                onClick()
-            }
-            .padding(horizontal = 20.dp, vertical = 13.dp),
-    ) {
-        Text(text, color = colors.ink2, fontSize = 15.sp)
     }
 }

@@ -15,6 +15,8 @@ import kotlin.math.abs
  */
 data class EntryFilter(
     val kind: String = ALL,
+    /** 完整类目名，`餐饮/外卖` 这种带斜杠的也照原样存，比较时同样按全名比 */
+    val category: String? = null,
     val account: String? = null,
     val minCents: Long? = null,
     val maxCents: Long? = null,
@@ -29,6 +31,7 @@ data class EntryFilter(
     val activeCount: Int
         get() = listOf(
             kind != ALL,
+            category != null,
             account != null,
             minCents != null || maxCents != null,
             hasRange,
@@ -38,7 +41,7 @@ data class EntryFilter(
     val isEmpty: Boolean get() = activeCount == 0
 
     /**
-     * 过滤 + 排序。`month` 只在没有自定义区间时参与；`day` 是首页点柱状图带下来的那一天。
+     * 过滤 + 排序。`month` 只在没有自定义区间时参与；`day` 是首页日历里点下来的那一天。
      */
     fun apply(
         entries: List<Entry>,
@@ -56,6 +59,9 @@ data class EntryFilter(
             .filter { if (hasRange) inRange(it.date) else Fmt.monthOf(it.date) == month }
             .filter { day == null || it.date == day }
             .filter { kind == ALL || it.kind == kind }
+            // 类目按全名比：`餐饮/外卖` 和 `餐饮` 是两个不同的筛选口径，
+            // 想要「整个餐饮」得选父级那一条——账单里父级才是常见写法
+            .filter { category == null || it.category == category }
             .filter { account == null || it.account.trim() == account }
             .filter { entry ->
                 val value = abs(entry.effectiveAmount)

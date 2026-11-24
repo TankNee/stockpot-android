@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 股票行情：腾讯 qt.gtimg.cn，只在股票页刷新时用 -->
+    <!-- 股票行情：腾讯 qt.gtimg.cn；同步：自己的 API 服务器（发布版只走 https） -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 应用内更新：把下载好的 apk 交给系统安装器 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".PotApp"
@@ -14,18 +16,34 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="${usesCleartextTraffic}"
         android:theme="@style/Theme.Stockpot"
         android:enableOnBackInvokedCallback="true">
 
+        <!--
+            应用内更新：把自己下载的 apk 通过 FileProvider 交给系统安装器。
+            exported=false + 只放出 updates/ 目录，别的应用拿不到这里的东西。
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!--
+            桌面入口全部交给下面的 activity-alias：一种图标样式（× 是否加圆形遮罩）一个入口，
+            设置里切换时用 PackageManager 开关对应别名。MainActivity 自己不再挂 LAUNCHER，
+            否则会永远多出一个关不掉的图标。
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:configChanges="uiMode|layoutDirection|screenSize|smallestScreenSize|screenLayout|orientation"
             android:windowSoftInputMode="adjustResize">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
 
             <!-- 在微信 / 支付宝 / 文件管理器里直接分享账单进来 -->
             <intent-filter>
@@ -46,5 +64,121 @@
                 <data android:mimeType="application/vnd.ms-excel" />
             </intent-filter>
         </activity>
+
+        <!-- 朱砂（默认） -->
+        <activity-alias
+            android:name=".LauncherCinnabar"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_cinnabar"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_cinnabar"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherCinnabarMask"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_cinnabar_mask"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_cinnabar_mask"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- 墨 -->
+        <activity-alias
+            android:name=".LauncherInk"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_ink"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_ink"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherInkMask"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_ink_mask"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_ink_mask"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- 米白 -->
+        <activity-alias
+            android:name=".LauncherCream"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_cream"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_cream"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherCreamMask"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_cream_mask"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_cream_mask"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- 松绿 -->
+        <activity-alias
+            android:name=".LauncherPine"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_pine"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_pine"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherPineMask"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_pine_mask"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_pine_mask"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
     </application>
 </manifest>

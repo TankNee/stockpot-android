@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Stockpot · 马卡龙主题 & 展开动画预览</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #14121a;
+    color: #e9e4ec;
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: 40px 32px 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 34px;
+  }
+  h1 { font-size: 18px; font-weight: 600; letter-spacing: .2px; }
+  h1 span { color: #928690; font-weight: 400; font-size: 13px; margin-left: 10px; }
+  .stage { display: flex; gap: 30px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+
+  /* ---------- 手机壳 ---------- */
+  .phone {
+    width: 320px; height: 660px; border-radius: 40px; padding: 10px;
+    background: #0d0c11; border: 1px solid #2c2733;
+    box-shadow: 0 24px 60px rgba(0,0,0,.55);
+    position: relative;
+  }
+  .screen {
+    position: relative; width: 100%; height: 100%; border-radius: 31px; overflow: hidden;
+    background: var(--canvas); color: var(--ink);
+    display: flex; flex-direction: column;
+  }
+  .light {
+    --canvas:#FAF4EC; --panel:#FFFDFB; --panel2:#F3EAE0; --line:#EDE3D8; --lineStrong:#DED2C4;
+    --ink:#3F3038; --ink2:#7B6A72; --ink3:#A29198;
+    --brand:#D4637C; --brandInk:#A74860; --brandTint:#FBE7EB;
+    --expense:#C94F63; --income:#4F8F72; --onBrand:#fff;
+    --c1:#E9A6B4; --c2:#9FC4E3; --c3:#A9CB9B; --c4:#EFD08C; --c5:#BEAFDD;
+  }
+  .dark {
+    --canvas:#17141A; --panel:#1F1B23; --panel2:#272230; --line:#332C3B; --lineStrong:#433A4D;
+    --ink:#F5EEF1; --ink2:#C1B5BC; --ink3:#928690;
+    --brand:#F095AC; --brandInk:#F8C4D2; --brandTint:#33212A;
+    --expense:#EF8FA0; --income:#9ACFAF; --onBrand:#2C1721;
+    --c1:#D98FA1; --c2:#8FB4D2; --c3:#9DC08F; --c4:#D9BE7C; --c5:#B3A4D2;
+  }
+  .caption { text-align: center; font-size: 12px; color: #9a90a2; margin-top: 12px; }
+
+  /* ---------- 顶栏 ---------- */
+  .status { height: 26px; display: flex; align-items: flex-end; justify-content: space-between;
+    padding: 0 18px 2px; font-size: 10px; color: var(--ink3); }
+  .head { padding: 8px 18px 10px; }
+  .head h2 { font-size: 22px; font-weight: 600; letter-spacing: -.4px; }
+  .head p { font-size: 11px; color: var(--ink3); margin-top: 3px; }
+  .body { flex: 1; overflow: hidden; padding: 0 14px; display: flex; flex-direction: column; gap: 10px; }
+
+  .card { background: var(--panel); border-radius: 18px; padding: 14px; }
+  .row-between { display: flex; align-items: center; justify-content: space-between; }
+  .eyebrow { font-size: 11px; color: var(--ink3); letter-spacing: .3px; }
+  .money { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .big { font-size: 28px; font-weight: 600; letter-spacing: -.8px; margin-top: 6px; }
+  .delta { font-size: 11px; color: var(--income); margin-top: 5px; }
+
+  .donut-wrap { display: flex; align-items: center; gap: 14px; margin-top: 12px; }
+  .donut { width: 78px; height: 78px; border-radius: 50%; flex: none;
+    background: conic-gradient(var(--c1) 0 33%, var(--panel) 33% 35%,
+      var(--c2) 35% 56%, var(--panel) 56% 58%,
+      var(--c3) 58% 74%, var(--panel) 74% 76%,
+      var(--c4) 76% 90%, var(--panel) 90% 92%,
+      var(--c5) 92% 100%);
+    position: relative; }
+  .donut::after { content: ""; position: absolute; inset: 26px; border-radius: 50%; background: var(--panel); }
+  .legend { display: flex; flex-direction: column; gap: 5px; flex: 1; }
+  .legend div { display: flex; align-items: center; font-size: 11px; color: var(--ink2); }
+  .legend i { width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
+  .legend span { margin-left: auto; color: var(--ink); }
+
+  .entry { display: flex; align-items: center; gap: 10px; padding: 9px 0; }
+  .entry + .entry { border-top: 1px solid var(--line); }
+  .ic { width: 30px; height: 30px; border-radius: 10px; flex: none; display: grid; place-items: center;
+    font-size: 12px; color: var(--ink); }
+  .entry .t { font-size: 13px; }
+  .entry .s { font-size: 10.5px; color: var(--ink3); margin-top: 2px; }
+  .amt { margin-left: auto; font-size: 13px; }
+
+  /* 底栏胶囊 */
+  .bar { position: absolute; left: 12px; right: 12px; bottom: 14px; height: 54px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 30px;
+    display: flex; align-items: center; padding: 4px; gap: 2px; }
+  .tab { flex: 1; height: 100%; border-radius: 26px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 2px; font-size: 10px; color: var(--ink3); }
+  .tab.on { background: var(--brandTint); color: var(--brandInk); }
+  .tab i { font-size: 14px; font-style: normal; }
+  .add { width: 46px; height: 46px; border-radius: 50%; background: var(--brand); color: var(--onBrand);
+    display: grid; place-items: center; font-size: 20px; flex: none; }
+
+  /* ---------- 设置片段 ---------- */
+  .seg { display: flex; background: var(--panel2); border-radius: 12px; padding: 3px; gap: 2px; margin-top: 9px; }
+  .seg div { flex: 1; text-align: center; font-size: 11.5px; padding: 6px 0; border-radius: 9px; color: var(--ink3); }
+  .seg div.on { background: var(--panel); color: var(--ink); font-weight: 500; }
+  .hair { height: 1px; background: var(--line); margin: 12px 0; }
+  .pal { display: flex; gap: 8px; margin-top: 8px; }
+  .pal .opt { flex: 1; border-radius: 14px; padding: 10px 11px; background: var(--panel2); }
+  .pal .opt.on { background: var(--brandTint); border: 1px solid color-mix(in srgb, var(--brand) 45%, transparent); }
+  .dots { display: flex; gap: 4px; }
+  .dots i { width: 14px; height: 14px; border-radius: 50%; display: block; }
+  .pal .nm { font-size: 12.5px; margin-top: 8px; }
+  .pal .on .nm { color: var(--brandInk); }
+  .pal .ds { font-size: 10px; color: var(--ink3); margin-top: 2px; line-height: 1.35; }
+  .block-title { font-size: 13px; }
+  .block-sub { font-size: 10.5px; color: var(--ink3); margin-top: 3px; line-height: 1.4; }
+
+  /* ---------- 动画演示 ---------- */
+  .demo-screen { background: var(--canvas); }
+  .demo-list { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .demo-row { background: var(--panel); border-radius: 14px; padding: 12px; display: flex;
+    align-items: center; gap: 10px; cursor: pointer; }
+  .demo-row:hover { outline: 1px dashed var(--brand); }
+  .overlay { position: absolute; inset: 0; display: none; z-index: 5; overflow: hidden; }
+  .overlay .paper { position: absolute; inset: 0; background: var(--panel); }
+  .overlay .content { position: absolute; inset: 0; padding: 26px 18px; opacity: 0; }
+  .overlay .content h3 { font-size: 20px; font-weight: 600; }
+  .overlay .content p { font-size: 11px; color: var(--ink3); margin-top: 4px; }
+  .field { background: var(--panel2); border-radius: 12px; height: 42px; margin-top: 14px;
+    display: flex; align-items: center; padding: 0 12px; color: var(--ink3); font-size: 12px; }
+  .controls { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
+  .controls button {
+    background: #241f2b; color: #ddd3e0; border: 1px solid #362f40; border-radius: 9px;
+    padding: 6px 12px; font-size: 12px; cursor: pointer;
+  }
+  .controls button.on { background: #3a2b33; border-color: #6c4552; color: #ffd9e2; }
+</style>
+</head>
+<body>
+
+<h1>Stockpot 0.15.0<span>马卡龙配色 · 四种打开条目的动画</span></h1>
+
+<div class="stage">
+
+  <!-- 浅色 -->
+  <div>
+    <div class="phone light">
+      <div class="screen">
+        <div class="status"><span>9:41</span><span>▮▮▮ ⌁</span></div>
+        <div class="head">
+          <h2>总览</h2>
+          <p>11 月 · 有 2 笔待核对</p>
+        </div>
+        <div class="body">
+          <div class="card">
+            <div class="row-between"><span class="eyebrow">本月支出</span><span class="eyebrow">11 月</span></div>
+            <div class="big money">¥4,382.50</div>
+            <div class="delta">比上月少 ¥512.30 · 收入 ¥9,200</div>
+            <div class="donut-wrap">
+              <div class="donut"></div>
+              <div class="legend">
+                <div><i style="background:var(--c1)"></i>餐饮<span class="money">¥1,428</span></div>
+                <div><i style="background:var(--c2)"></i>交通<span class="money">¥964</span></div>
+                <div><i style="background:var(--c3)"></i>日用<span class="money">¥712</span></div>
+                <div><i style="background:var(--c4)"></i>娱乐<span class="money">¥608</span></div>
+                <div><i style="background:var(--c5)"></i>其它<span class="money">¥670</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="padding-top:10px;padding-bottom:10px">
+            <div class="row-between" style="margin-bottom:2px">
+              <span class="eyebrow">最近记录</span><span class="eyebrow">今天</span>
+            </div>
+            <div class="entry">
+              <div class="ic" style="background:var(--c1)">☕</div>
+              <div><div class="t">Manner 咖啡</div><div class="s">餐饮 · 09:12</div></div>
+              <div class="amt money" style="color:var(--expense)">−25.00</div>
+            </div>
+            <div class="entry">
+              <div class="ic" style="background:var(--c3)">🛒</div>
+              <div><div class="t">小象超市</div><div class="s">日用 · 昨天</div></div>
+              <div class="amt money" style="color:var(--expense)">−86.40</div>
+            </div>
+            <div class="entry">
+              <div class="ic" style="background:var(--c2)">💼</div>
+              <div><div class="t">工资</div><div class="s">收入 · 11-20</div></div>
+              <div class="amt money" style="color:var(--income)">+9,200</div>
+            </div>
+          </div>
+        </div>
+        <div class="bar">
+          <div class="tab on"><i>◫</i>总览</div>
+          <div class="tab"><i>≡</i>流水</div>
+          <div class="tab"><i>◈</i>资产</div>
+          <div class="tab"><i>⚙</i>设置</div>
+          <div class="add">＋</div>
+        </div>
+      </div>
+    </div>
+    <div class="caption">马卡龙 · 浅色</div>
+  </div>
+
+  <!-- 深色 -->
+  <div>
+    <div class="phone dark">
+      <div class="screen">
+        <div class="status"><span>9:41</span><span>▮▮▮ ⌁</span></div>
+        <div class="head">
+          <h2>总览</h2>
+          <p>11 月 · 有 2 笔待核对</p>
+        </div>
+        <div class="body">
+          <div class="card">
+            <div class="row-between"><span class="eyebrow">本月支出</span><span class="eyebrow">11 月</span></div>
+            <div class="big money">¥4,382.50</div>
+            <div class="delta">比上月少 ¥512.30 · 收入 ¥9,200</div>
+            <div class="donut-wrap">
+              <div class="donut"></div>
+              <div class="legend">
+                <div><i style="background:var(--c1)"></i>餐饮<span class="money">¥1,428</span></div>
+                <div><i style="background:var(--c2)"></i>交通<span class="money">¥964</span></div>
+                <div><i style="background:var(--c3)"></i>日用<span class="money">¥712</span></div>
+                <div><i style="background:var(--c4)"></i>娱乐<span class="money">¥608</span></div>
+                <div><i style="background:var(--c5)"></i>其它<span class="money">¥670</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="padding-top:10px;padding-bottom:10px">
+            <div class="row-between" style="margin-bottom:2px">
+              <span class="eyebrow">最近记录</span><span class="eyebrow">今天</span>
+            </div>
+            <div class="entry">
+              <div class="ic" style="background:var(--c1)">☕</div>
+              <div><div class="t">Manner 咖啡</div><div class="s">餐饮 · 09:12</div></div>
+              <div class="amt money" style="color:var(--expense)">−25.00</div>
+            </div>
+            <div class="entry">
+              <div class="ic" style="background:var(--c3)">🛒</div>
+              <div><div class="t">小象超市</div><div class="s">日用 · 昨天</div></div>
+              <div class="amt money" style="color:var(--expense)">−86.40</div>
+            </div>
+            <div class="entry">
+              <div class="ic" style="background:var(--c2)">💼</div>
+              <div><div class="t">工资</div><div class="s">收入 · 11-20</div></div>
+              <div class="amt money" style="color:var(--income)">+9,200</div>
+            </div>
+          </div>
+        </div>
+        <div class="bar">
+          <div class="tab on"><i>◫</i>总览</div>
+          <div class="tab"><i>≡</i>流水</div>
+          <div class="tab"><i>◈</i>资产</div>
+          <div class="tab"><i>⚙</i>设置</div>
+          <div class="add">＋</div>
+        </div>
+      </div>
+    </div>
+    <div class="caption">马卡龙 · 深色</div>
+  </div>
+
+  <!-- 设置 -->
+  <div>
+    <div class="phone light">
+      <div class="screen">
+        <div class="status"><span>9:41</span><span>▮▮▮ ⌁</span></div>
+        <div class="head"><h2>设置</h2><p>外观、数据、同步都在这儿</p></div>
+        <div class="body" style="padding-bottom:14px">
+          <div class="card">
+            <div class="eyebrow" style="letter-spacing:.6px;color:var(--ink2)">外观</div>
+            <div class="seg"><div>跟随系统</div><div class="on">浅色</div><div>深色</div></div>
+            <div class="hair"></div>
+            <div class="eyebrow">配色</div>
+            <div class="pal">
+              <div class="opt on">
+                <div class="dots">
+                  <i style="background:#E9A6B4"></i><i style="background:#9FC4E3"></i>
+                  <i style="background:#A9CB9B"></i><i style="background:#D4637C"></i>
+                </div>
+                <div class="nm">马卡龙</div>
+                <div class="ds">奶油白打底，六个糖色负责点缀</div>
+              </div>
+              <div class="opt">
+                <div class="dots">
+                  <i style="background:#C25B3F"></i><i style="background:#D2A03F"></i>
+                  <i style="background:#6E8B5B"></i><i style="background:#E1543A"></i>
+                </div>
+                <div class="nm">暖纸</div>
+                <div class="ds">米白配朱砂，和桌面端同一套</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px;margin-top:12px">
+              <span style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--ink3)">
+                <span style="width:22px;height:22px;border-radius:50%;background:var(--brandTint);color:var(--expense);display:grid;place-items:center;font-size:10px">支</span>支出用红
+              </span>
+              <span style="display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--ink3)">
+                <span style="width:22px;height:22px;border-radius:50%;background:color-mix(in srgb,var(--income) 14%,transparent);color:var(--income);display:grid;place-items:center;font-size:10px">收</span>收入用绿
+              </span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="eyebrow" style="letter-spacing:.6px;color:var(--ink2)">显示</div>
+            <div style="margin-top:10px">
+              <div class="block-title">打开条目的动画</div>
+              <div class="block-sub" id="animHint">从这一行上下摊开，边摊边长大</div>
+              <div class="seg" id="animSeg">
+                <div class="on" data-a="fold">折叠</div>
+                <div data-a="zoom">缩放</div>
+                <div data-a="slide">侧滑</div>
+                <div data-a="lift">上推</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="caption">设置 → 外观 / 显示</div>
+  </div>
+
+  <!-- 动画演示 -->
+  <div>
+    <div class="phone light">
+      <div class="screen demo-screen">
+        <div class="status"><span>9:41</span><span>▮▮▮ ⌁</span></div>
+        <div class="head"><h2>流水</h2><p>11 月 · 128 笔</p></div>
+        <div class="demo-list">
+          <div class="demo-row" data-demo>
+            <div class="ic" style="background:var(--c1)">☕</div>
+            <div><div class="t">Manner 咖啡</div><div class="s">餐饮 · 09:12</div></div>
+            <div class="amt money" style="color:var(--expense)">−25.00</div>
+          </div>
+          <div class="demo-row" data-demo>
+            <div class="ic" style="background:var(--c3)">🛒</div>
+            <div><div class="t">小象超市</div><div class="s">日用 · 昨天</div></div>
+            <div class="amt money" style="color:var(--expense)">−86.40</div>
+          </div>
+          <div class="demo-row" data-demo>
+            <div class="ic" style="background:var(--c2)">💼</div>
+            <div><div class="t">工资</div><div class="s">收入 · 11-20</div></div>
+            <div class="amt money" style="color:var(--income)">+9,200</div>
+          </div>
+          <div class="demo-row" data-demo>
+            <div class="ic" style="background:var(--c4)">🎬</div>
+            <div><div class="t">电影票</div><div class="s">娱乐 · 11-19</div></div>
+            <div class="amt money" style="color:var(--expense)">−60.00</div>
+          </div>
+        </div>
+        <div class="bar">
+          <div class="tab"><i>◫</i>总览</div>
+          <div class="tab on"><i>≡</i>流水</div>
+          <div class="tab"><i>◈</i>资产</div>
+          <div class="tab"><i>⚙</i>设置</div>
+          <div class="add">＋</div>
+        </div>
+
+        <div class="overlay" id="ov">
+          <div class="paper" id="paper"></div>
+          <div class="content" id="ovContent">
+            <h3>编辑账目</h3>
+            <p>11-24 · 09:12</p>
+            <div class="field money">¥ 25.00</div>
+            <div class="field">餐饮 / 咖啡</div>
+            <div class="field">账户 · 招行储蓄卡</div>
+            <div class="field">项目 · 不归项目</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="caption">点任意一行看动画</div>
+    <div class="controls" id="demoCtrl">
+      <button class="on" data-m="fold">折叠</button>
+      <button data-m="zoom">缩放</button>
+      <button data-m="slide">侧滑</button>
+      <button data-m="lift">上推</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const ov = document.getElementById('ov');
+  const paper = document.getElementById('paper');
+  const ovContent = document.getElementById('ovContent');
+  const screen = ov.parentElement;
+  let mode = 'fold';
+
+  document.getElementById('animSeg').addEventListener('click', e => {
+    const d = e.target.closest('[data-a]');
+    if (!d) return;
+    [...d.parentElement.children].forEach(x => x.classList.remove('on'));
+    d.classList.add('on');
+    const hints = {
+      fold: '从这一行上下摊开，边摊边长大',
+      zoom: '整页从这一行放大到满屏',
+      slide: '整页从右侧滑进来',
+      lift: '整页从底下一路推上来'
+    };
+    document.getElementById('animHint').textContent = hints[d.dataset.a];
+    mode = d.dataset.a;
+    [...document.querySelectorAll('#demoCtrl button')].forEach(b => b.classList.toggle('on', b.dataset.m === mode));
+  });
+
+  document.getElementById('demoCtrl').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    mode = b.dataset.m;
+    [...b.parentElement.children].forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+  });
+
+  function play(row) {
+    const s = screen.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    const d = 460;
+    ov.style.display = 'block';
+    // 每放一次先把上一轮的定格清干净，否则 clip / transform 会粘住
+    [ov, paper, ovContent].forEach(el => {
+      el.getAnimations?.().forEach(a => a.cancel());
+      el.style.clipPath = 'none';
+      el.style.transform = 'none';
+      el.style.borderRadius = '0';
+    });
+    paper.style.opacity = 1;
+
+    if (mode === 'fold') {
+      const rowTop = r.top - s.top, rowBottom = r.bottom - s.top;
+      const mid = (rowTop + rowBottom) / 2, half = (rowBottom - rowTop) * 0.25;
+      const st = mid - half, sb = mid + half;
+      // 起点缩放：跟行宽走，再乘 0.82 才看得出窄了一截
+      const s0 = Math.max(0.58, Math.min(0.74, (r.width / s.width) * 0.82));
+      const oy = `${(mid / s.height * 100).toFixed(1)}%`;
+      paper.style.transformOrigin = `50% ${oy}`;
+      ovContent.style.transformOrigin = `50% ${oy}`;
+      const ease = 'cubic-bezier(.2,.75,.15,1)';
+      // 裁剪在 #ov 上（缩放外面），缩放单独给纸和内容 —— 和原生里 clipPath 包 scale 的顺序一致。
+      // 纵向展开和缩放同一根时间轴；内容顶边始终贴住纸的上沿（push）。
+      const steps = 12;
+      const clipFrames = [];
+      const contentFrames = [];
+      for (let i = 0; i <= steps; i++) {
+        const p = i / steps;
+        const top = st + (0 - st) * p;
+        const bottom = sb + (s.height - sb) * p;
+        const sz = s0 + (1 - s0) * p;
+        const gap = (s.width * (1 - sz)) / 2;
+        const push = Math.max(0, top - mid * (1 - sz));
+        clipFrames.push({
+          offset: p,
+          clipPath: `inset(${top}px ${gap}px ${s.height - bottom}px ${gap}px round ${26 * Math.min(1, (1 - p) / 0.25)}px)`
+        });
+        contentFrames.push({
+          offset: p,
+          transform: `translateY(${push}px) scale(${sz})`,
+          opacity: Math.max(0, Math.min(1, (p - 0.55) / 0.3))
+        });
+      }
+      ov.animate(clipFrames, { duration: d, easing: 'linear', fill: 'forwards' });
+      paper.animate([{ transform: `scale(${s0})` }, { transform: 'scale(1)' }],
+        { duration: d, easing: ease, fill: 'forwards' });
+      ovContent.animate(contentFrames, { duration: d, easing: 'linear', fill: 'forwards' });
+      ov.style.clipPath = 'inset(0px 0px 0px 0px round 0px)';
+      paper.style.transform = 'scale(1)';
+      ovContent.style.opacity = 1;
+      ovContent.style.transform = 'scale(1)';
+    } else if (mode === 'zoom') {
+      const scale = Math.max(0.35, Math.min(0.72, r.width / s.width));
+      const ox = ((r.left + r.width / 2 - s.left) / s.width * 100).toFixed(1);
+      const oy = ((r.top + r.height / 2 - s.top) / s.height * 100).toFixed(1);
+      paper.style.transformOrigin = `${ox}% ${oy}%`;
+      paper.animate([
+        { transform: `scale(${scale})`, borderRadius: '24px', opacity: 0 },
+        { transform: 'scale(1)', borderRadius: '0px', opacity: 1 }
+      ], { duration: d, easing: 'cubic-bezier(.2,.75,.15,1)', fill: 'forwards' });
+      paper.style.transform = 'scale(1)';
+      ovContent.animate([{ opacity: 0 }, { opacity: 1 }],
+        { duration: d * 0.4, delay: d * 0.2, fill: 'forwards' });
+      ovContent.style.opacity = 1;
+    } else if (mode === 'lift') {
+      // 整页从屏幕底下推上来，顶上带一圈圆角，最后 10% 收掉
+      ov.animate([
+        { transform: 'translateY(100%)', borderRadius: '26px 26px 0 0', offset: 0 },
+        { transform: 'translateY(0%)', borderRadius: '26px 26px 0 0', offset: 0.9 },
+        { transform: 'translateY(0%)', borderRadius: '0px', offset: 1 }
+      ], { duration: d, easing: 'cubic-bezier(.2,.75,.15,1)', fill: 'forwards' });
+      ov.style.transform = 'translateY(0%)';
+      ovContent.style.opacity = 1;
+    } else {
+      ov.animate([
+        { transform: 'translateX(50%)', opacity: 0 },
+        { transform: 'translateX(0)', opacity: 1 }
+      ], { duration: d, easing: 'cubic-bezier(.2,.75,.15,1)', fill: 'forwards' });
+      ov.style.transform = 'translateX(0)';
+      ovContent.style.opacity = 1;
+    }
+
+    clearTimeout(play._t);
+    play._t = setTimeout(() => {
+      ov.style.display = 'none';
+      [ov, paper, ovContent].forEach(el => {
+        el.getAnimations?.().forEach(a => a.cancel());
+        el.style.clipPath = 'none';
+        el.style.transform = 'none';
+        el.style.borderRadius = '0';
+      });
+      ovContent.style.opacity = 0;
+    }, 1700);
+  }
+
+  document.querySelectorAll('[data-demo]').forEach(row => {
+    row.addEventListener('click', () => play(row));
+  });
+
+  setTimeout(() => {
+    if (!new URLSearchParams(location.search).has('t')) {
+      play(document.querySelector('[data-demo]'));
+    }
+  }, 700);
+
+  // ?t=0.42 把折叠定格在某个进度上，方便截图看中间态
+  const freeze = new URLSearchParams(location.search).get('t');
+  if (freeze !== null) {
+    const p = parseFloat(freeze);
+    const row = document.querySelector('[data-demo]');
+    const s = screen.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    const rowTop = r.top - s.top;
+    const rowBottom = r.bottom - s.top;
+    const mid = (rowTop + rowBottom) / 2;
+    const half = (rowBottom - rowTop) * 0.25;
+    const st = mid - half, sb = mid + half;
+    const spread = p;
+    const top = st + (0 - st) * spread;
+    const bottom = sb + (s.height - sb) * spread;
+    const s0 = Math.max(0.58, Math.min(0.74, (r.width / s.width) * 0.82));
+    const sz = s0 + (1 - s0) * p;
+    const gap = (s.width * (1 - sz)) / 2;
+    const push = Math.max(0, top - mid * (1 - sz));
+    ov.style.display = 'block';
+    ov.style.clipPath = `inset(${top}px ${gap}px ${s.height - bottom}px ${gap}px round ${26 * Math.min(1, (1 - spread) / 0.25)}px)`;
+    paper.style.transformOrigin = `50% ${(mid / s.height * 100).toFixed(1)}%`;
+    paper.style.transform = `scale(${sz})`;
+    ovContent.style.transformOrigin = `50% ${(mid / s.height * 100).toFixed(1)}%`;
+    ovContent.style.transform = `translateY(${push}px) scale(${sz})`;
+    ovContent.style.opacity = p > 0.55 ? Math.min(1, (p - 0.55) / 0.3) : 0;
+    if (new URLSearchParams(location.search).has('dbg')) {
+      paper.style.background = 'red';
+      ovContent.style.background = 'rgba(0,0,255,.35)';
+      console.log('ov', ov.getBoundingClientRect(), 'paper', paper.getBoundingClientRect());
+    }
+  }
+</script>
+</body>
+</html>

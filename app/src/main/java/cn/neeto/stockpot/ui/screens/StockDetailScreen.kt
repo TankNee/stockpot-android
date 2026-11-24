@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.CandlestickChart
+import androidx.compose.material.icons.outlined.ShowChart
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
@@ -47,12 +49,17 @@ import cn.neeto.stockpot.core.model.Market
 import cn.neeto.stockpot.core.model.Quote
 import cn.neeto.stockpot.core.model.Rates
 import cn.neeto.stockpot.core.model.Stock
+import cn.neeto.stockpot.ui.components.IconSegmented
+import cn.neeto.stockpot.ui.components.IconOption
+import cn.neeto.stockpot.ui.components.PotPillButton
+import cn.neeto.stockpot.ui.components.PillTone
 import cn.neeto.stockpot.ui.components.CandleChart
 import cn.neeto.stockpot.ui.components.EmptyState
 import cn.neeto.stockpot.ui.components.LineChart
 import cn.neeto.stockpot.ui.components.PotCard
 import cn.neeto.stockpot.ui.components.PotConfirmSheet
 import cn.neeto.stockpot.ui.components.Segmented
+import cn.neeto.stockpot.ui.components.overlayBottomPadding
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
 import kotlin.math.abs
@@ -123,7 +130,12 @@ fun StockDetailScreen(
         )
 
         LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 108.dp),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 0.dp,
+                bottom = overlayBottomPadding(),
+            ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item(key = "price") {
@@ -169,8 +181,11 @@ fun StockDetailScreen(
                     }
                     Spacer(Modifier.height(12.dp))
                     Box(Modifier.width(176.dp)) {
-                        Segmented(
-                            options = listOf("minute" to "分时", "day" to "日 K"),
+                        IconSegmented(
+                            options = listOf(
+                                IconOption("minute", "分时", Icons.Outlined.ShowChart),
+                                IconOption("day", "日 K", Icons.Outlined.CandlestickChart),
+                            ),
                             selected = tab,
                             onSelect = {
                                 tab = it
@@ -258,16 +273,12 @@ fun StockDetailScreen(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                TextButton(onClick = { confirmRemove = true }) {
-                    Icon(
-                        Icons.Outlined.DeleteOutline,
-                        contentDescription = null,
-                        tint = colors.danger,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text("从这个账户里删掉", fontSize = 14.sp, color = colors.danger)
-                }
+                PotPillButton(
+                    text = "从这个账户里删掉",
+                    icon = Icons.Outlined.DeleteOutline,
+                    tone = PillTone.Danger,
+                    onClick = { confirmRemove = true },
+                )
             }
         }
     }

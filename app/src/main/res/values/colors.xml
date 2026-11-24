@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="canvas">#F4F1EC</color>
-    <color name="ic_launcher_background">#E1543A</color>
+
+    <!-- 应用图标的底色，四种样式各一个（前景图形见 drawable/ic_fg_*） -->
+    <color name="ic_bg_cinnabar">#E1543A</color>
+    <color name="ic_bg_ink">#1C1A17</color>
+    <color name="ic_bg_cream">#F2E9DA</color>
+    <color name="ic_bg_pine">#1F6B57</color>
 </resources>

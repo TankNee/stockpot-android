@@ -1,6 +1,8 @@
 package cn.neeto.stockpot.ui
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import cn.neeto.stockpot.PotApp
@@ -25,11 +27,17 @@ import cn.neeto.stockpot.core.model.Rule
 import cn.neeto.stockpot.core.model.Stock
 import cn.neeto.stockpot.core.model.StockAccount
 import cn.neeto.stockpot.core.model.Wallet
+import cn.neeto.stockpot.core.net.LoginOutcome
+import cn.neeto.stockpot.core.net.SyncManager
+import cn.neeto.stockpot.core.net.TwoFactorSetup
+import cn.neeto.stockpot.core.net.Updater
 import cn.neeto.stockpot.core.stock.QuoteClient
+import cn.neeto.stockpot.core.util.Avatars
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -52,6 +60,145 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
     val prefs = settings.state
 
     val dataPath: String get() = store.path
+
+    /* ------------------------------ 云端 ------------------------------ */
+
+    private val sync = pot.sync
+
+    /** 登录状态与同步进度；没登录时 signedIn 为 false，UI 就当它不存在 */
+    val cloud: StateFlow<SyncManager.SyncUi> = sync.ui
+
+    val serverUrl: String get() = settings.state.value.serverUrl
+
+    suspend fun cloudLogin(email: String, password: String): Result<LoginOutcome> = sync.login(email, password)
+
+    suspend fun cloudLoginTwoFactor(ticket: String, code: String): Result<Unit> =
+        sync.loginTwoFactor(ticket, code)
+
+    suspend fun cloudRegister(email: String, password: String, name: String): Result<Unit> =
+        sync.register(email, password, name)
+
+    suspend fun cloudSyncNow(): Boolean = sync.syncNow()
+
+    suspend fun cloudClearRemote(): Result<Unit> = sync.clearRemote()
+
+    fun cloudLogout() = sync.logout()
+
+    fun setServerUrl(url: String) = settings.setServerUrl(url)
+
+    /** 本机有没有还没推上去的改动，账号页拿来显示「是否一致」。 */
+    val cloudDirty: Boolean get() = pot.auth.dirty
+
+    /* ------------------------------ 账号资料 ------------------------------ */
+
+    private val _avatar = MutableStateFlow<Bitmap?>(null)
+
+    /** 头像位图。本地私有的东西，不落共享存储，退出登录就清掉。 */
+    val avatar: StateFlow<Bitmap?> = _avatar
+
+    /** 上次拉的是哪一版：同一版不重复打网络，换了头像才重新拉。 */
+    private var avatarStamp = ""
+
+    /**
+     * 按需拉头像。头像单独一个请求，`avatarAt` 变了才重拉——
+     * 每次进账号页都下载一遍几十 KB 没必要。
+     */
+    fun loadAvatar() {
+        val ui = cloud.value
+        if (!ui.signedIn || !ui.account.hasAvatar) {
+            avatarStamp = ""
+            if (_avatar.value != null) _avatar.value = null
+            return
+        }
+        val stamp = ui.account.id + "@" + ui.account.avatarAt
+        if (stamp == avatarStamp) return
+        avatarStamp = stamp
+        viewModelScope.launch {
+            val bytes = sync.avatarBytes()
+            _avatar.value = bytes?.let { Avatars.decode(it) }
+            if (_avatar.value == null) avatarStamp = ""
+        }
+    }
+
+    suspend fun updateName(name: String): Result<Unit> = sync.updateName(name)
+
+    suspend fun changePassword(current: String, next: String): Result<Unit> =
+        sync.changePassword(current, next)
+
+    /** 相册选图 → 裁剪压缩 → 上传。读图和压缩都在 IO 线程，别卡着转圈动画。 */
+    suspend fun setAvatarFromUri(uri: Uri): Result<Unit> {
+        val dataUrl = withContext(Dispatchers.IO) { Avatars.dataUrlFrom(getApplication(), uri) }
+            ?: return Result.failure(IllegalStateException("这张图读不出来，换一张试试"))
+        return sync.uploadAvatar(dataUrl).onSuccess { loadAvatar() }
+    }
+
+    suspend fun removeAvatar(): Result<Unit> = sync.removeAvatar().onSuccess { loadAvatar() }
+
+    suspend fun setupTwoFactor(): Result<TwoFactorSetup> = sync.setupTwoFactor()
+
+    suspend fun enableTwoFactor(code: String): Result<List<String>> = sync.enableTwoFactor(code)
+
+    suspend fun disableTwoFactor(password: String): Result<Unit> = sync.disableTwoFactor(password)
+
+    /* ------------------------------ 下拉刷新 ------------------------------ */
+
+    private val _refreshing = MutableStateFlow(false)
+
+    /** 首页和流水页共用的转圈状态：一次只刷一份，两页不会各转各的。 */
+    val refreshing: StateFlow<Boolean> = _refreshing
+
+    /**
+     * 下拉刷新。
+     *
+     * 账本本身是本地的，没什么可拉的，所以「刷」的是外面那两样：云端那一次对账、
+     * 股票行情和日 K。两样都没有也照样转一下，回一句「已经是最新的」——
+     * 否则下拉之后屏幕毫无反应，会让人以为手势没生效。
+     */
+    fun pullRefresh(onDone: (String) -> Unit) {
+        if (_refreshing.value) return
+        viewModelScope.launch {
+            _refreshing.value = true
+            val started = System.currentTimeMillis()
+            val parts = mutableListOf<String>()
+            if (sync.signedIn) parts += if (sync.syncNow()) "已和云端对齐" else "云端这次没对上"
+            val stocks = store.data.value.stocks
+            if (stocks.isNotEmpty()) {
+                refreshQuotes(silent = true)
+                ensureDaily(stocks, force = true)
+                parts += "行情已刷新"
+            }
+            // 转圈至少停 450ms：一闪而过比不刷新还让人心里没底
+            val gap = 450 - (System.currentTimeMillis() - started)
+            if (gap > 0) delay(gap)
+            _refreshing.value = false
+            onDone(if (parts.isEmpty()) "已经是最新的" else parts.joinToString(" · "))
+        }
+    }
+
+    /* ------------------------------ 应用更新 ------------------------------ */
+
+    private val updater = pot.updater
+
+    val update: StateFlow<Updater.State> = updater.state
+
+    /** 设置页点「检查更新」是 manual：失败要说出来；开机那次是静默的。 */
+    fun checkUpdate(manual: Boolean = false) = updater.check(silent = !manual)
+
+    fun downloadUpdate() = updater.download()
+
+    /** 返回 false 表示没拉起安装器（系统不让装未知来源，或者包不在了）。 */
+    fun installUpdate(): Boolean = updater.install()
+
+    private var lastForegroundSync = 0L
+
+    /** 回到前台对一次账。半分钟内刚同步过就不重复打网络。 */
+    fun syncOnForeground() {
+        if (!sync.signedIn) return
+        val now = System.currentTimeMillis()
+        if (now - lastForegroundSync < 30_000) return
+        lastForegroundSync = now
+        viewModelScope.launch { sync.syncNow() }
+    }
 
     /* ------------------------------ 账目 ------------------------------ */
 
@@ -286,6 +433,16 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
     /* ------------------------------ 其它 ------------------------------ */
 
     fun setTheme(theme: String) = settings.setTheme(theme)
+
+    fun setPalette(id: String) = settings.setPalette(id)
+
+    fun setEditorAnim(id: String) = settings.setEditorAnim(id)
+
+    /* ------------------------------- 图标 ------------------------------- */
+
+    fun setIconStyle(id: String): Boolean = settings.setIconStyle(id)
+
+    fun setIconMask(on: Boolean): Boolean = settings.setIconMask(on)
 
     /* --------------------------- 标题 / 备注整理 --------------------------- */
 

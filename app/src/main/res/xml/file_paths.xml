@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    FileProvider 只放出 updates/ 这一个目录：下载下来的安装包在这里，
+    装完（或者发现新版本时）会被 Updater 清掉，别的地方一律不对外。
+-->
+<paths>
+    <external-files-path name="updates" path="updates/" />
+    <!-- 外置存储不可用时 Updater 会退回应用私有目录，这里也放出来，免得安装时找不到文件 -->
+    <files-path name="updates_internal" path="updates/" />
+</paths>

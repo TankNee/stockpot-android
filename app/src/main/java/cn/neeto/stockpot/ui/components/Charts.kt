@@ -44,16 +44,15 @@ import kotlin.math.ceil
 import kotlin.math.max
 
 /**
- * 每日支出柱状图。点一根柱子可以跳到当天的流水。
+ * 每日支出柱状图。
  *
- * 柱子的颜色、比例和刻度文字都在 remember 里算好，滚动时只做 draw：
- * 画布里再调 Fmt / copy(alpha) 会拖慢每一帧。
+ * 只看，不点——具体某一天花了什么由下面的日历负责，柱子上再挂一层点击
+ * 容易让人以为点错了。柱子的颜色、比例和刻度文字都在 remember 里算好，
+ * 滚动时只做 draw：画布里再调 Fmt / copy(alpha) 会拖慢每一帧。
  */
 @Composable
 fun DailyBars(
     trend: List<DayTotal>,
-    selectedDate: String?,
-    onPick: (DayTotal) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalPotColors.current
@@ -65,13 +64,11 @@ fun DailyBars(
     val todayDay = remember(today) { Fmt.dayOfMonth(today) }
 
     data class Bar(val ratio: Float, val color: Color)
-    val bars = remember(trend, selectedDate, maxValue, todayDay, isCurrentMonth, colors) {
+    val bars = remember(trend, maxValue, todayDay, isCurrentMonth, colors) {
         val quiet = colors.brand.copy(alpha = 0.55f)
         trend.map { day ->
-            val selected = selectedDate == day.date
             val isToday = isCurrentMonth && day.day == todayDay
             val color = when {
-                selected -> colors.brandInk
                 isToday -> colors.brand
                 day.expense > 0 -> quiet
                 else -> colors.line
@@ -81,28 +78,14 @@ fun DailyBars(
     }
 
     val tickStyle = remember(colors.ink3) { TextStyle(fontSize = 9.sp, color = colors.ink3) }
-    val ticks = remember(trend, tickStyle) {
-        buildList {
-            add(1)
-            if (trend.size >= 10) add(10)
-            if (trend.size >= 20) add(20)
-            add(trend.size)
-        }.distinct().map { day -> day to measurer.measure(AnnotatedString(day.toString()), tickStyle) }
-    }
+    val ticks = remember(trend, tickStyle) { dayTicks(trend, measurer, tickStyle) }
 
     Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .height(138.dp)
-            .pointerInput(trend) {
-                detectTapGestures { offset ->
-                    if (trend.isEmpty()) return@detectTapGestures
-                    val slot = size.width.toFloat() / trend.size
-                    val index = (offset.x / slot).toInt().coerceIn(0, trend.size - 1)
-                    trend.getOrNull(index)?.let(onPick)
-                }
-            },
+            .height(ChartHeight),
     ) {
+        if (trend.isEmpty()) return@Canvas
         val chartBottom = size.height - 18.dp.toPx()
         val chartTop = 6.dp.toPx()
         val chartHeight = chartBottom - chartTop
@@ -146,6 +129,115 @@ fun DailyBars(
         // 只画 1 / 10 / 20 / 月末四个刻度，够定位又不挤
         ticks.forEach { (day, layout) ->
             val x = (slot * (day - 1) + slot / 2f - layout.size.width / 2f)
+                .coerceIn(0f, size.width - layout.size.width)
+            drawText(layout, topLeft = Offset(x, chartBottom + 5.dp.toPx()))
+        }
+    }
+}
+
+/** 柱状图和曲线图共用一个高度，切换时卡片不会忽然长高或缩一截。 */
+private val ChartHeight = 138.dp
+
+/** 1 / 10 / 20 / 月末四个刻度，柱子铺在格子上、曲线铺在两点之间，位置各算各的。 */
+private fun dayTicks(
+    trend: List<DayTotal>,
+    measurer: androidx.compose.ui.text.TextMeasurer,
+    style: TextStyle,
+): List<Pair<Int, androidx.compose.ui.text.TextLayoutResult>> {
+    if (trend.isEmpty()) return emptyList()
+    return buildList {
+        add(1)
+        if (trend.size >= 10) add(10)
+        if (trend.size >= 20) add(20)
+        add(trend.size)
+    }.distinct().map { day -> day to measurer.measure(AnnotatedString(day.toString()), style) }
+}
+
+/**
+ * 每日支出曲线：同一份数据的另一种看法。
+ *
+ * 柱子看「哪几天花得多」，曲线看「这个月是怎么一路走下来的」——
+ * 月底那根抬头还是慢慢爬上去，曲线比柱子清楚。零花钱的日子就落在底线上，
+ * 不断开，不然整条线会碎成一串孤岛。
+ */
+@Composable
+fun DailyLine(
+    trend: List<DayTotal>,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalPotColors.current
+    val measurer = rememberTextMeasurer()
+    val today = remember { Fmt.today() }
+    val maxValue = remember(trend) { max(1L, trend.maxOfOrNull { it.expense } ?: 0L) }
+    val isCurrentMonth = remember(trend, today) { trend.firstOrNull()?.date?.take(7) == today.take(7) }
+    val todayDay = remember(today) { Fmt.dayOfMonth(today) }
+    val tickStyle = remember(colors.ink3) { TextStyle(fontSize = 9.sp, color = colors.ink3) }
+    val ticks = remember(trend, tickStyle) { dayTicks(trend, measurer, tickStyle) }
+    val lineColor = colors.brand
+    val gradient = remember(lineColor) {
+        listOf(lineColor.copy(alpha = 0.22f), lineColor.copy(alpha = 0.01f))
+    }
+
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(ChartHeight),
+    ) {
+        if (trend.size < 2) return@Canvas
+        val chartBottom = size.height - 18.dp.toPx()
+        val chartTop = 6.dp.toPx()
+        val chartHeight = chartBottom - chartTop
+        fun xOf(index: Int): Float = size.width * index / (trend.size - 1).toFloat()
+        fun yOf(value: Long): Float = chartBottom - chartHeight * (value.toFloat() / maxValue)
+
+        for (fraction in listOf(0.5f, 1f)) {
+            val y = chartBottom - chartHeight * fraction
+            drawLine(colors.line, Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
+        }
+
+        val line = androidx.compose.ui.graphics.Path()
+        trend.forEachIndexed { index, day ->
+            if (index == 0) line.moveTo(xOf(0), yOf(day.expense)) else line.lineTo(xOf(index), yOf(day.expense))
+        }
+        val area = androidx.compose.ui.graphics.Path().apply {
+            addPath(line)
+            lineTo(xOf(trend.lastIndex), chartBottom)
+            lineTo(0f, chartBottom)
+            close()
+        }
+        drawPath(
+            path = area,
+            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                gradient,
+                startY = chartTop,
+                endY = chartBottom,
+            ),
+        )
+        drawPath(
+            path = line,
+            color = lineColor,
+            style = Stroke(
+                width = 1.9.dp.toPx(),
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                join = androidx.compose.ui.graphics.StrokeJoin.Round,
+            ),
+        )
+
+        // 有支出的日子点一颗小点：一屏 30 天，光看线分不清是花了 0 还是花了一点点
+        trend.forEachIndexed { index, day ->
+            if (day.expense <= 0) return@forEachIndexed
+            drawCircle(lineColor.copy(alpha = 0.55f), radius = 1.8.dp.toPx(), center = Offset(xOf(index), yOf(day.expense)))
+        }
+        val todayIndex = if (isCurrentMonth) trend.indexOfFirst { it.day == todayDay } else -1
+        if (todayIndex >= 0) {
+            val center = Offset(xOf(todayIndex), yOf(trend[todayIndex].expense))
+            drawCircle(colors.brand, radius = 4.dp.toPx(), center = center)
+            drawCircle(colors.panel, radius = 1.8.dp.toPx(), center = center)
+        }
+
+        // 曲线铺在两个点之间，刻度往端点对齐，1 号不会跑到左边一半
+        ticks.forEach { (day, layout) ->
+            val x = (xOf(day - 1) - layout.size.width / 2f)
                 .coerceIn(0f, size.width - layout.size.width)
             drawText(layout, topLeft = Offset(x, chartBottom + 5.dp.toPx()))
         }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -25,6 +27,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.ArrowDownward
+import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -36,14 +42,16 @@ import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.TimePickerDefaults
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,13 +76,18 @@ import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Project
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.LinkOff
+import cn.neeto.stockpot.ui.components.IconSegmented
+import cn.neeto.stockpot.ui.components.IconOption
+import cn.neeto.stockpot.ui.components.PotPillButton
+import cn.neeto.stockpot.ui.components.PillTone
 import cn.neeto.stockpot.ui.components.Amount
 import cn.neeto.stockpot.ui.components.Chip
 import cn.neeto.stockpot.ui.components.EntryRow
 import cn.neeto.stockpot.ui.components.Hairline
 import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.Segmented
-import cn.neeto.stockpot.ui.components.SheetGrabber
 import cn.neeto.stockpot.ui.components.SheetHeader
 import cn.neeto.stockpot.ui.components.PotSheet
 import cn.neeto.stockpot.ui.components.SheetActions
@@ -85,7 +98,7 @@ import cn.neeto.stockpot.ui.theme.MoneyStyle
 /** 记一笔 / 改一笔。同一个表单，`existing` 为空就是新建。 */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun EntryEditorSheet(
+fun EntryEditorScreen(
     ledger: Ledger,
     existing: Entry?,
     initialDate: String,
@@ -102,11 +115,18 @@ fun EntryEditorSheet(
     onBack: (() -> Unit)? = null,
 ) {
     val colors = LocalPotColors.current
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // 以前弹层自己接系统返回键；改成整页之后得自己接。
+    // 从关联的那一条跳过来的，先退回到上一条，再退才是关掉。
+    BackHandler {
+        if (onBack != null) onBack() else onDismiss()
+    }
 
     var kind by remember(existing?.id) { mutableStateOf(existing?.kind ?: Kind.EXPENSE) }
     var amountText by remember(existing?.id) { mutableStateOf(existing?.let { Fmt.editYuan(it.amount) } ?: "") }
     var date by remember(existing?.id) { mutableStateOf(existing?.date ?: initialDate) }
+    // 手记通常不填时间；导入来的带着几个点，编辑时能改、能清掉
+    var time by remember(existing?.id) { mutableStateOf(existing?.time ?: "") }
     var category by remember(existing?.id) { mutableStateOf(existing?.category ?: "") }
     var account by remember(existing?.id) { mutableStateOf(existing?.account ?: "") }
     var counterparty by remember(existing?.id) { mutableStateOf(existing?.counterparty ?: "") }
@@ -114,6 +134,7 @@ fun EntryEditorSheet(
     var projectId by remember(existing?.id) { mutableStateOf(existing?.projectId ?: "") }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
     var showAccountPicker by remember { mutableStateOf(false) }
     var showProjectPicker by remember(existing?.id) { mutableStateOf(false) }
     var showRefundPicker by remember { mutableStateOf(false) }
@@ -143,7 +164,7 @@ fun EntryEditorSheet(
     val whenLabel = if (existing == null) {
         null
     } else {
-        Fmt.dayLabel(date) + " · " + if (existing.time.isBlank()) "未记录时间" else existing.time
+        Fmt.dayLabel(date) + " · " + if (time.isBlank()) "未记录时间" else time
     }
 
     fun submit() {
@@ -153,6 +174,7 @@ fun EntryEditorSheet(
             onSave(
                 EntryInput(
                     date = date,
+                    time = time,
                     kind = kind,
                     amount = amount,
                     category = finalCategory,
@@ -166,6 +188,7 @@ fun EntryEditorSheet(
             onUpdate(
                 existing.copy(
                     date = date,
+                    time = time,
                     kind = kind,
                     amount = amount,
                     category = finalCategory,
@@ -180,50 +203,54 @@ fun EntryEditorSheet(
         onDismiss()
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = colors.panel,
-        // 自己管 inset：抓手要把状态栏让出来，底部留白交给下面的 Spacer
-        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
-        dragHandle = { SheetGrabber() },
+    // 整页铺开，不再是底部弹层：点一行流水之后这一页从那一行的位置长出来（缩放由外面的
+    // ZoomReveal 做，这里只管按最终尺寸布局），关掉时原样缩回那一行里去。
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(colors.panel)
+            .imePadding(),
     ) {
-        Column(Modifier.fillMaxWidth().imePadding()) {
-            // 头部钉在顶上：保存按钮得一直看得见，不能跟着表单一起滚下去
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-                SheetHeader(
-                    title = if (existing == null) "记一笔" else "编辑账目",
-                    subtitle = whenLabel,
-                    onClose = onDismiss,
-                    trailing = { SaveChip(enabled = canSave) { submit() } },
-                    leading = if (onBack == null) {
-                        null
-                    } else {
-                        {
-                            IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) {
-                                Icon(
-                                    Icons.AutoMirrored.Outlined.ArrowBack,
-                                    contentDescription = "返回上一条",
-                                    tint = colors.ink3,
-                                    modifier = Modifier.size(19.dp),
-                                )
-                            }
+        // 头部钉在顶上：保存按钮得一直看得见，不能跟着表单一起滚下去
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(start = 20.dp, end = 20.dp, top = 6.dp),
+        ) {
+            SheetHeader(
+                title = if (existing == null) "记一笔" else "编辑账目",
+                subtitle = whenLabel,
+                onClose = onDismiss,
+                trailing = { SaveChip(enabled = canSave) { submit() } },
+                leading = if (onBack == null) {
+                    null
+                } else {
+                    {
+                        IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) {
+                            Icon(
+                                Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "返回上一条",
+                                tint = colors.ink3,
+                                modifier = Modifier.size(19.dp),
+                            )
                         }
-                    },
-                )
-            }
-            Column(
-                modifier = Modifier
-                    .weight(1f, false)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp),
-            ) {
+                    }
+                },
+            )
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp),
+        ) {
             Spacer(Modifier.height(6.dp))
-            Segmented(
+            IconSegmented(
                 options = listOf(
-                    Kind.EXPENSE to "支出",
-                    Kind.INCOME to "收入",
-                    Kind.TRANSFER to "转账",
+                    IconOption(Kind.EXPENSE, "支出", Icons.Outlined.ArrowUpward),
+                    IconOption(Kind.INCOME, "收入", Icons.Outlined.ArrowDownward),
+                    IconOption(Kind.TRANSFER, "转账", Icons.Outlined.SwapHoriz),
                 ),
                 selected = kind,
                 onSelect = { kind = it },
@@ -324,6 +351,25 @@ fun EntryEditorSheet(
                 Icon(Icons.Outlined.CalendarMonth, contentDescription = null, tint = colors.ink3, modifier = Modifier.size(15.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(Fmt.dayLabel(date), style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+                Spacer(Modifier.weight(1f))
+                // 具体时间：点开是一个表盘，选「不记时间」可以清掉
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(colors.panel2)
+                        .clickable { showTimePicker = true }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Outlined.Schedule, contentDescription = null, tint = colors.ink3, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        if (time.isBlank()) "加时间" else time,
+                        fontSize = 12.5.sp,
+                        color = if (time.isBlank()) colors.ink3 else colors.ink,
+                        fontWeight = if (time.isBlank()) FontWeight.Normal else FontWeight.Medium,
+                    )
+                }
             }
 
             Spacer(Modifier.height(18.dp))
@@ -380,25 +426,21 @@ fun EntryEditorSheet(
                 MetaCard(existing)
                 Spacer(Modifier.height(14.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = {
-                        onDelete(existing)
-                        onDismiss()
-                    }) {
-                        Icon(
-                            Icons.Outlined.DeleteOutline,
-                            contentDescription = null,
-                            tint = colors.danger,
-                            modifier = Modifier.size(17.dp),
-                        )
-                        Spacer(Modifier.width(5.dp))
-                        Text("删除", color = colors.danger, fontSize = 15.sp)
-                    }
+                    PotPillButton(
+                        text = "删除这笔",
+                        icon = Icons.Outlined.DeleteOutline,
+                        tone = PillTone.Danger,
+                        onClick = {
+                            onDelete(existing)
+                            onDismiss()
+                        },
+                    )
                 }
             }
             Spacer(Modifier.height(8.dp))
             }
-            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
-        }
+        // 键盘收起来以后最后一条不会被系统导航条压住
+        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
     }
 
     if (showCategoryPicker) {
@@ -449,6 +491,17 @@ fun EntryEditorSheet(
             onPick = { picked ->
                 projectId = picked
                 showProjectPicker = false
+            },
+        )
+    }
+
+    if (showTimePicker) {
+        TimePickerSheet(
+            initial = time,
+            onDismiss = { showTimePicker = false },
+            onPick = {
+                time = it
+                showTimePicker = false
             },
         )
     }
@@ -580,12 +633,13 @@ private fun RefundLinkCard(
             }
             if (onUnlink != null) {
                 Hairline()
-                TextButton(
+                PotPillButton(
+                    text = "解除关联",
+                    icon = Icons.Outlined.LinkOff,
+                    tone = PillTone.Ghost,
+                    modifier = Modifier.padding(start = 6.dp, top = 6.dp, bottom = 6.dp),
                     onClick = onUnlink,
-                    modifier = Modifier.padding(start = 6.dp),
-                ) {
-                    Text("解除关联", fontSize = 13.sp, color = colors.ink3)
-                }
+                )
             }
         } else {
             Row(
@@ -1137,17 +1191,77 @@ fun CategoryPickerDialog(
                                 ),
                             )
                             Spacer(Modifier.width(8.dp))
-                            TextButton(
+                            PotPillButton(
+                                text = "添加",
+                                icon = Icons.Outlined.Add,
                                 enabled = newName.isNotBlank(),
                                 onClick = {
                                     val name = newName.trim()
                                     onAddCategory(name)
                                     onPick(name)
                                 },
-                            ) { Text("添加", color = if (newName.isNotBlank()) colors.brand else colors.ink3) }
+                            )
                         }
                     }
                 }
             }
         }
+}
+
+/**
+ * 具体时间：24 小时表盘。
+ *
+ * 手工记账大多数时候只记到天，所以默认不填；从账单导进来的带着分钟，
+ * 编辑时点开这个入口能改，也能「不记时间」清掉。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimePickerSheet(
+    initial: String,
+    onDismiss: () -> Unit,
+    onPick: (String) -> Unit,
+) {
+    val colors = LocalPotColors.current
+    val parts = initial.split(":")
+    val state = rememberTimePickerState(
+        initialHour = parts.getOrNull(0)?.toIntOrNull()?.coerceIn(0, 23) ?: 12,
+        initialMinute = parts.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 59) ?: 0,
+        is24Hour = true,
+    )
+    PotSheet(onDismiss = onDismiss) {
+        Text("具体时间", style = MaterialTheme.typography.titleLarge, color = colors.ink)
+        Spacer(Modifier.height(2.dp))
+        Text(
+            "只影响显示顺序，不影响按天汇总。",
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.ink3,
+        )
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            TimePicker(
+                state = state,
+                colors = TimePickerDefaults.colors(
+                    clockDialColor = colors.panel2,
+                    selectorColor = colors.brand,
+                    containerColor = colors.panel,
+                ),
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PotPillButton(
+                text = "不记时间",
+                icon = Icons.Outlined.Schedule,
+                tone = PillTone.Ghost,
+                onClick = { onPick("") },
+            )
+            Spacer(Modifier.weight(1f))
+        }
+        SheetActions(
+            confirmText = "确定",
+            enabled = true,
+            danger = false,
+            onConfirm = { onPick(String.format("%02d:%02d", state.hour, state.minute)) },
+            onCancel = onDismiss,
+        )
+    }
 }

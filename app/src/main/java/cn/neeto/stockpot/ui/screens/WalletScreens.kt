@@ -54,6 +54,8 @@ import androidx.compose.ui.unit.sp
 import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Wallet
+import cn.neeto.stockpot.ui.components.PotPillButton
+import cn.neeto.stockpot.ui.components.PillTone
 import cn.neeto.stockpot.ui.components.Hairline
 import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.PotCard
@@ -62,6 +64,7 @@ import cn.neeto.stockpot.ui.components.PotSheet
 import cn.neeto.stockpot.ui.components.SheetActions
 import cn.neeto.stockpot.ui.components.SheetField
 import cn.neeto.stockpot.ui.components.rememberHaptics
+import cn.neeto.stockpot.ui.components.overlayBottomPadding
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 
 /** 内置类型：顺序决定分组与选择页的顺序，`credit` 单独当负债看。 */
@@ -156,7 +159,12 @@ fun WalletKindScreen(
     Column(Modifier.fillMaxWidth()) {
         EditorBar(title = "选择类型", onBack = onBack, onConfirm = null)
         LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 108.dp),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 2.dp,
+                bottom = overlayBottomPadding(),
+            ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (imported.isNotEmpty()) {
@@ -428,7 +436,7 @@ fun WalletEditorScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(start = 16.dp, end = 16.dp, bottom = 108.dp),
+                .padding(start = 16.dp, end = 16.dp, bottom = overlayBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // 类型：点进去换一种，回来还是这张表，已经填的内容不会丢
@@ -507,20 +515,13 @@ fun WalletEditorScreen(
             }
 
             if (!isNew) {
-                TextButton(
+                PotPillButton(
+                    text = "删除这个账户",
+                    icon = Icons.Outlined.DeleteOutline,
+                    tone = PillTone.Danger,
                     onClick = { confirmDelete = true },
-                    modifier = Modifier.padding(start = 2.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
-                ) {
-                    Icon(
-                        Icons.Outlined.DeleteOutline,
-                        contentDescription = null,
-                        tint = colors.danger,
-                        modifier = Modifier.size(17.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text("删除这个账户", fontSize = 14.sp, color = colors.danger)
-                }
+                )
+
             }
         }
     }

@@ -110,7 +110,18 @@ class EntryFilterTest {
     fun `角标只数真正的条件`() {
         assertEquals(0, EntryFilter().activeCount)
         assertEquals(4, EntryFilter(kind = Kind.EXPENSE, account = "招行", minCents = 1_000, sort = "amountAsc").activeCount)
+        assertEquals(1, EntryFilter(category = "餐饮").activeCount)
         assertTrue(EntryFilter().isEmpty)
+    }
+
+    @Test
+    fun `类目按全名比，父级不会顺带把子类带上`() {
+        val list = entries.map {
+            it.copy(category = if (it.id == "1") "餐饮/咖啡" else if (it.id == "2") "购物/鞋" else "餐饮")
+        }
+        assertEquals(listOf("1"), EntryFilter(category = "餐饮/咖啡").apply(list, "2026-11").map { it.id })
+        assertEquals(listOf("3", "5"), EntryFilter(category = "餐饮").apply(list, "2026-11").map { it.id }.sorted())
+        assertEquals(4, EntryFilter().apply(list, "2026-11").size)
     }
 
     @Test

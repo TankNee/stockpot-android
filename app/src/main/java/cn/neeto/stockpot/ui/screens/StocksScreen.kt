@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -67,6 +68,8 @@ import cn.neeto.stockpot.core.model.StockAccount
 import cn.neeto.stockpot.core.stock.QuoteClient
 import cn.neeto.stockpot.core.stock.StockSearchHit
 import kotlinx.coroutines.delay
+import cn.neeto.stockpot.ui.components.PotPillButton
+import cn.neeto.stockpot.ui.components.PillTone
 import cn.neeto.stockpot.ui.components.EmptyState
 import cn.neeto.stockpot.ui.components.Hairline
 import cn.neeto.stockpot.ui.components.LineChart
@@ -80,6 +83,7 @@ import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.SheetField
 import cn.neeto.stockpot.ui.components.rememberHaptics
 import cn.neeto.stockpot.ui.components.Sparkline
+import cn.neeto.stockpot.ui.components.overlayBottomPadding
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
 import kotlin.math.abs
@@ -175,7 +179,7 @@ fun StocksScreen(
         )
 
         LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 108.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = overlayBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item(key = "hero") {
@@ -242,9 +246,7 @@ fun StocksScreen(
                         color = colors.ink3,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { adding = true }) {
-                        Text("新建账户", fontSize = 14.sp, color = colors.brandInk)
-                    }
+                    PotPillButton(text = "新建账户", icon = Icons.Outlined.Add, onClick = { adding = true })
                 }
             }
 
@@ -445,7 +447,7 @@ fun StockAccountScreen(
         )
 
         LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 108.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = overlayBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "hero") {
@@ -498,9 +500,7 @@ fun StockAccountScreen(
                         color = colors.ink3,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { adding = true }) {
-                        Text("添加持仓", fontSize = 14.sp, color = colors.brandInk)
-                    }
+                    PotPillButton(text = "添加持仓", icon = Icons.Outlined.Add, onClick = { adding = true })
                 }
             }
 
@@ -586,21 +586,19 @@ fun StockAccountScreen(
 
             item(key = "actions") {
                 Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
-                    TextButton(onClick = { renaming = true }) {
-                        Icon(Icons.Outlined.Edit, contentDescription = null, tint = colors.ink3, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("重命名账户", fontSize = 14.sp, color = colors.ink2)
-                    }
-                    TextButton(onClick = { confirmDelete = true }) {
-                        Icon(
-                            Icons.Outlined.DeleteOutline,
-                            contentDescription = null,
-                            tint = colors.danger,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text("删除这个账户", fontSize = 14.sp, color = colors.danger)
-                    }
+                    PotPillButton(
+                        text = "重命名账户",
+                        icon = Icons.Outlined.Edit,
+                        tone = PillTone.Ghost,
+                        onClick = { renaming = true },
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    PotPillButton(
+                        text = "删除这个账户",
+                        icon = Icons.Outlined.DeleteOutline,
+                        tone = PillTone.Danger,
+                        onClick = { confirmDelete = true },
+                    )
                 }
             }
         }
@@ -748,7 +746,7 @@ private fun AccountTrendCard(
                     color = colors.ink3,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = onRetry) { Text("重新拉", fontSize = 14.sp, color = colors.brandInk) }
+                PotPillButton(text = "重新拉", icon = Icons.Outlined.Refresh, tone = PillTone.Ghost, onClick = onRetry)
             }
             return@PotCard
         }
@@ -1016,19 +1014,12 @@ internal fun HoldingEditorSheet(
 
         if (existing != null) {
             Spacer(Modifier.height(6.dp))
-            TextButton(
+            PotPillButton(
+                text = "删除这只持仓",
+                icon = Icons.Outlined.DeleteOutline,
+                tone = PillTone.Danger,
                 onClick = { onDelete(existing.first.id) },
-                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp),
-            ) {
-                Icon(
-                    Icons.Outlined.DeleteOutline,
-                    contentDescription = null,
-                    tint = colors.danger,
-                    modifier = Modifier.size(16.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-                Text("删除这只持仓", fontSize = 14.sp, color = colors.danger)
-            }
+            )
         }
 
         SheetActions(

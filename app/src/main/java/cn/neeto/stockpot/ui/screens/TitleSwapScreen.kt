@@ -61,13 +61,14 @@ import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.PotCard
 import cn.neeto.stockpot.ui.components.SectionTitle
 import cn.neeto.stockpot.ui.components.rememberHaptics
+import cn.neeto.stockpot.ui.components.overlayBottomPadding
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 
-/** 底部胶囊（56dp）+ 它的下内边距，操作条浮在它上面，留 8dp 呼吸。 */
-private val ActionBarAbove = 76.dp
+/** 底部那颗「换」离系统导航条 12dp；这一页没有 tab 胶囊，不用再往它上面躲。 */
+private val ActionBarLift = 12.dp
 
-/** 列表底部留白：胶囊 108dp 那一档，再加上浮着的操作条。 */
-private val ListBottomInset = 176.dp
+/** 操作条自己的高度，列表要把它整个让出来。 */
+private val ActionBarSize = 56.dp
 
 /**
  * 条目标题整理：把「美团 / 淘宝闪购」这类把平台名当标题的条目扫出来，
@@ -101,7 +102,12 @@ fun TitleSwapScreen(
         Box(Modifier.weight(1f)) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = ListBottomInset),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 4.dp,
+                    bottom = overlayBottomPadding(ActionBarLift + ActionBarSize),
+                ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item(key = "intro") {
@@ -218,13 +224,13 @@ fun TitleSwapScreen(
             }
 
             // 底部只放一件事：换。没选的时候按钮是灰的，不给按。
-            // 位置抬到胶囊之上——这个页面 tab 栏是浮着的，贴底会被它整个盖住。
+            // 二级页面的 tab 胶囊是滑走的，按钮直接贴着导航条站，只留 12dp。
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(start = 16.dp, end = 16.dp, bottom = ActionBarAbove),
+                    .padding(start = 16.dp, end = 16.dp, bottom = ActionBarLift),
             ) {
                 val ready = picked.isNotEmpty()
                 Box(

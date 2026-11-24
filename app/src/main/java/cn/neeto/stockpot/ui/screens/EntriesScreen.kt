@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
@@ -68,12 +69,19 @@ import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
+import androidx.compose.material.icons.outlined.RestartAlt
+import cn.neeto.stockpot.ui.components.PotPillButton
+import cn.neeto.stockpot.ui.components.PillTone
 import cn.neeto.stockpot.ui.components.Chip
 import cn.neeto.stockpot.ui.components.DayHeader
 import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.EmptyState
 import cn.neeto.stockpot.ui.components.EntryRow
+import cn.neeto.stockpot.ui.components.GhostButton
 import cn.neeto.stockpot.ui.components.MonthStepper
+import cn.neeto.stockpot.ui.components.MonthSwipe
+import cn.neeto.stockpot.ui.components.PotPullToRefresh
+import cn.neeto.stockpot.ui.components.PrimaryButton
 import cn.neeto.stockpot.ui.components.rememberHaptics
 import cn.neeto.stockpot.ui.components.SheetActions
 import cn.neeto.stockpot.ui.components.SheetField
@@ -96,12 +104,22 @@ fun EntriesScreen(
     onMonth: (String) -> Unit,
     onDayFilter: (String?) -> Unit,
     onOpenEntry: (Entry) -> Unit,
+    onLongPressEntry: (Entry) -> Unit,
     onOpenImport: () -> Unit,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
 ) {
     val colors = LocalPotColors.current
     var filter by rememberSaveable(stateSaver = FilterSaver) { mutableStateOf(EntryFilter()) }
     var query by rememberSaveable { mutableStateOf("") }
     var filterOpen by remember { mutableStateOf(false) }
+
+    // 左右滑月和点箭头走同一条路。翻月就回到按月浏览：区间筛选跟新月份对不上，顺手清掉
+    fun shift(delta: Long) {
+        onMonth(Fmt.shiftMonth(month, delta))
+        onDayFilter(null)
+        if (filter.hasRange) filter = filter.copy(from = null, to = null)
+    }
 
     // 时间范围能跨月，候选账户就别只限当月了
     val accountOptions = remember(ledger.entries) {
@@ -111,6 +129,19 @@ fun EntriesScreen(
             .filter { it.isNotEmpty() }
             .distinct()
             .sorted()
+    }
+
+    // 类目候选按出现次数排：常用的排在前面，一屏就能点到；
+    // 长长一条「餐饮/外卖/工作日午餐」也留着，筛选就是要有话直说
+    val categoryOptions = remember(ledger.entries) {
+        ledger.entries
+            .asSequence()
+            .filter { !it.archived && it.category.isNotEmpty() }
+            .groupingBy { it.category }
+            .eachCount()
+            .entries
+            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            .map { it.key }
     }
 
     val entries = remember(ledger.entries, month, dayFilter, filter, query) {
@@ -130,12 +161,7 @@ fun EntriesScreen(
         MonthStepper(
             month = month,
             label = if (filter.hasRange) rangeLabel(filter) else null,
-            onShift = {
-                // 翻月就回到按月浏览，否则区间和新月份对不上
-                onMonth(Fmt.shiftMonth(month, it))
-                onDayFilter(null)
-                if (filter.hasRange) filter = filter.copy(from = null, to = null)
-            },
+            onShift = ::shift,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
             trailing = {
                 Text(
@@ -188,10 +214,24 @@ fun EntriesScreen(
             return@Column
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(bottom = 108.dp),
+        PotPullToRefresh(
+            isRefreshing = refreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
         ) {
+            // 搜索框、筛选按钮留在页头不动，滑的只是下面的列表：
+            // 手指落在输入框上左右拖是要选字的，不能被拿去翻月
+            MonthSwipe(
+                month = month,
+                onShift = { shift(it.toLong()) },
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 108.dp),
+                ) {
             if (byAmount) {
                 items(entries, key = { it.id }, contentType = { "entry" }) { entry ->
                     Box(Modifier.background(colors.panel)) {
@@ -199,6 +239,7 @@ fun EntriesScreen(
                             entry = entry,
                             showDate = true,
                             onClick = { onOpenEntry(entry) },
+                            onLongClick = { onLongPressEntry(entry) },
                         )
                     }
                 }
@@ -214,10 +255,16 @@ fun EntriesScreen(
                     }
                     items(dayEntries, key = { it.id }, contentType = { "entry" }) { entry ->
                         Box(Modifier.background(colors.panel)) {
-                            EntryRow(entry = entry, onClick = { onOpenEntry(entry) })
+                            EntryRow(
+                                entry = entry,
+                                onClick = { onOpenEntry(entry) },
+                                onLongClick = { onLongPressEntry(entry) },
+                            )
                         }
                     }
                     item(key = "gap-$date") { Spacer(Modifier.height(6.dp)) }
+                }
+            }
                 }
             }
         }
@@ -227,6 +274,7 @@ fun EntriesScreen(
         EntryFilterSheet(
             month = month,
             accounts = accountOptions,
+            categories = categoryOptions,
             initial = filter,
             entries = ledger.entries,
             day = dayFilter,
@@ -293,6 +341,12 @@ private fun ActiveFilters(
         if (filter.kind != EntryFilter.ALL) {
             item(key = "kind") {
                 ActiveChip(kindLabel(filter.kind)) { onFilter(filter.copy(kind = EntryFilter.ALL)) }
+            }
+        }
+        val category = filter.category
+        if (category != null) {
+            item(key = "category") {
+                ActiveChip(category.replace("/", " · ")) { onFilter(filter.copy(category = null)) }
             }
         }
         val account = filter.account
@@ -398,6 +452,7 @@ private fun rangeLabel(filter: EntryFilter): String {
 private fun EntryFilterSheet(
     month: String,
     accounts: List<String>,
+    categories: List<String>,
     initial: EntryFilter,
     entries: List<Entry>,
     day: String?,
@@ -461,14 +516,17 @@ private fun EntryFilterSheet(
                     }
                     if (picking == null) {
                         if (!draft.isEmpty) {
-                            TextButton(onClick = {
-                                draft = EntryFilter()
-                                minText = ""
-                                maxText = ""
-                                preset = "month"
-                            }) {
-                                Text("重置", fontSize = 14.sp, color = colors.brandInk)
-                            }
+                            PotPillButton(
+                                text = "重置",
+                                icon = Icons.Outlined.RestartAlt,
+                                tone = PillTone.Ghost,
+                                onClick = {
+                                    draft = EntryFilter()
+                                    minText = ""
+                                    maxText = ""
+                                    preset = "month"
+                                },
+                            )
                         }
                         IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
                             Icon(
@@ -533,6 +591,30 @@ private fun EntryFilterSheet(
                             label = label,
                             active = draft.kind == value,
                             onClick = { draft = draft.copy(kind = value) },
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(18.dp))
+                // 类目
+                SectionLabel("类目")
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Chip(
+                        label = "全部类目",
+                        active = draft.category == null,
+                        onClick = { draft = draft.copy(category = null) },
+                    )
+                    categories.forEach { name ->
+                        Chip(
+                            // 账单里的 `餐饮/外卖` 显示成 `餐饮 · 外卖`，跟条目行的写法一致
+                            label = name.replace("/", " · "),
+                            active = draft.category == name,
+                            onClick = {
+                                draft = draft.copy(category = if (draft.category == name) null else name)
+                            },
                         )
                     }
                 }
@@ -817,6 +899,7 @@ private val FilterSaver = mapSaver(
     save = { f ->
         mapOf(
             "kind" to f.kind,
+            "category" to f.category.orEmpty(),
             "account" to f.account.orEmpty(),
             "min" to (f.minCents ?: -1L),
             "max" to (f.maxCents ?: -1L),
@@ -828,6 +911,7 @@ private val FilterSaver = mapSaver(
     restore = { m ->
         EntryFilter(
             kind = m["kind"] as String,
+            category = (m["category"] as String).ifEmpty { null },
             account = (m["account"] as String).ifEmpty { null },
             minCents = (m["min"] as Long).takeIf { it >= 0 },
             maxCents = (m["max"] as Long).takeIf { it >= 0 },

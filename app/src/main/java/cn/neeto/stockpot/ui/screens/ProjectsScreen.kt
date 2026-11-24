@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Check
@@ -58,14 +59,23 @@ import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Project
+import androidx.compose.material.icons.outlined.PlaylistAdd
+import androidx.compose.material.icons.outlined.PlaylistRemove
+import androidx.compose.material.icons.outlined.SelectAll
+import androidx.compose.material.icons.outlined.Deselect
+import cn.neeto.stockpot.ui.components.PotPillButton
+import cn.neeto.stockpot.ui.components.PillTone
 import cn.neeto.stockpot.ui.components.CategoryAvatar
 import cn.neeto.stockpot.ui.components.EmptyState
 import cn.neeto.stockpot.ui.components.EntryRow
 import cn.neeto.stockpot.ui.components.Hairline
+import cn.neeto.stockpot.ui.components.GhostButton
+import cn.neeto.stockpot.ui.components.PrimaryButton
 import cn.neeto.stockpot.ui.components.PotCard
 import cn.neeto.stockpot.ui.components.SectionTitle
 import cn.neeto.stockpot.ui.components.SheetGrabber
 import cn.neeto.stockpot.ui.components.SheetHeader
+import cn.neeto.stockpot.ui.components.overlayBottomPadding
 import cn.neeto.stockpot.ui.components.PotConfirmSheet
 import cn.neeto.stockpot.ui.components.PotSheet
 import cn.neeto.stockpot.ui.components.SheetActions
@@ -122,7 +132,7 @@ fun ProjectsScreen(
         }
 
         LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 108.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = overlayBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(projects, key = { it.id }) { project ->
@@ -220,7 +230,9 @@ fun ProjectDetailScreen(
 
     if (project == null) {
         Column(Modifier.fillMaxSize()) {
-            TextButton(onClick = onBack) { Text("返回") }
+            Box(Modifier.padding(16.dp)) {
+                PotPillButton(text = "返回", icon = Icons.AutoMirrored.Outlined.ArrowBack, tone = PillTone.Ghost, onClick = onBack)
+            }
             EmptyState("项目不存在", "它可能已经被删除了。")
         }
         return
@@ -263,7 +275,12 @@ fun ProjectDetailScreen(
         }
 
         LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 108.dp),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = 4.dp,
+                bottom = overlayBottomPadding(),
+            ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
@@ -341,9 +358,11 @@ fun ProjectDetailScreen(
                         color = colors.ink3,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { showAttach = true }) {
-                        Text("添加账目", fontSize = 14.sp, color = colors.brandInk)
-                    }
+                    PotPillButton(
+                        text = "添加账目",
+                        icon = Icons.Outlined.PlaylistAdd,
+                        onClick = { showAttach = true },
+                    )
                 }
             }
 
@@ -368,11 +387,13 @@ fun ProjectDetailScreen(
                     }
                 }
                 item {
-                    TextButton(
-                        onClick = { onDetach(rows.map { it.id }.toSet()) },
-                        modifier = Modifier.padding(top = 2.dp),
-                    ) {
-                        Text("把账目从这个项目里全部移出", fontSize = 14.sp, color = colors.ink3)
+                    Box(Modifier.padding(top = 6.dp)) {
+                        PotPillButton(
+                            text = "把账目从这个项目里全部移出",
+                            icon = Icons.Outlined.PlaylistRemove,
+                            tone = PillTone.Ghost,
+                            onClick = { onDetach(rows.map { it.id }.toSet()) },
+                        )
                     }
                 }
             }
@@ -581,11 +602,14 @@ fun AttachEntriesSheet(
                 onClose = onDismiss,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = {
-                    selected = if (selected.size == candidates.size) emptySet() else candidates.map { it.id }.toSet()
-                }) {
-                    Text(if (selected.size == candidates.size) "取消全选" else "全选", fontSize = 14.sp, color = colors.brandInk)
-                }
+                PotPillButton(
+                    text = if (selected.size == candidates.size) "取消全选" else "全选",
+                    icon = if (selected.size == candidates.size) Icons.Outlined.Deselect else Icons.Outlined.SelectAll,
+                    tone = PillTone.Ghost,
+                    onClick = {
+                        selected = if (selected.size == candidates.size) emptySet() else candidates.map { it.id }.toSet()
+                    },
+                )
                 Spacer(Modifier.weight(1f))
                 PrimaryButton(
                     text = if (selected.isEmpty()) "选择账目" else "加入 ${selected.size} 笔",

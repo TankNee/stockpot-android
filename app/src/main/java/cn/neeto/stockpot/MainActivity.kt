@@ -50,6 +50,12 @@ class MainActivity : ComponentActivity() {
         readSharedIntent(intent)
     }
 
+    override fun onStart() {
+        super.onStart()
+        // 回到前台顺手对一次账（没登录时是空操作）
+        viewModel.syncOnForeground()
+    }
+
     override fun onStop() {
         super.onStop()
         viewModel.flush()

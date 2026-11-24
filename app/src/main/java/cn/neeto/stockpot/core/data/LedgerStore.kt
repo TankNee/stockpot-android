@@ -21,7 +21,7 @@ import java.io.File
 
 /**
  * 本地优先的存储：应用私有目录里的一份可读 JSON，原子替换写入，
- * 外加一份滚动备份。没有账号、没有网络、没有后台服务。
+ * 外加一份滚动备份。没有账号也照常工作，登录之后同步只是在旁边多挂一个观察者。
  *
  * 文件名与文件结构都和桌面端一致，导出的 `ledger.json` 可以直接被桌面端打开。
  */
@@ -45,6 +45,13 @@ class LedgerStore(context: Context) {
     val data: StateFlow<Ledger> = _data.asStateFlow()
 
     private var saveJob: Job? = null
+
+    /**
+     * 本机改动的回调：把「改之前」和「改之后」两份都交出去，
+     * 同步那边靠它记墓碑、安排推送。云端写回来的改动不会触发这里，
+     * 否则同步自己会把自己再推一遍。
+     */
+    var onLocalChange: ((before: Ledger, after: Ledger) -> Unit)? = null
 
     init {
         if (!file.exists()) scope.launch { persist(_data.value) }
@@ -73,15 +80,25 @@ class LedgerStore(context: Context) {
 
     /** 所有修改都走这里：先更新内存快照，再防抖落盘。 */
     fun update(block: (Ledger) -> Ledger) {
-        val next = block(_data.value)
-        if (next === _data.value) return
+        val before = _data.value
+        val next = block(before)
+        if (next === before) return
         _data.value = next
         scheduleSave()
+        onLocalChange?.invoke(before, next)
     }
 
-    fun replaceAll(ledger: Ledger) {
-        _data.value = ledger.normalized()
+    /**
+     * 整份替换：导入、合并、载入示例、删除撤销都走这里。
+     * [fromRemote] 是云端写回来的那份——它不该再被当成"本地改动"推上去。
+     */
+    fun replaceAll(ledger: Ledger, fromRemote: Boolean = false) {
+        val before = _data.value
+        val next = ledger.normalized()
+        if (next == before) return
+        _data.value = next
         scheduleSave()
+        if (!fromRemote) onLocalChange?.invoke(before, next)
     }
 
     private fun scheduleSave() {
