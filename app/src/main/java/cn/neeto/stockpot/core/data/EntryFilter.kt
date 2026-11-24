@@ -67,15 +67,46 @@ data class EntryFilter(
                 val value = abs(entry.effectiveAmount)
                 (low == null || value >= low) && (high == null || value <= high)
             }
-            .filter { entry ->
-                needle.isEmpty() ||
-                    entry.counterparty.contains(needle, ignoreCase = true) ||
-                    entry.note.contains(needle, ignoreCase = true) ||
-                    entry.category.contains(needle, ignoreCase = true) ||
-                    entry.account.contains(needle, ignoreCase = true)
-            }
+            .filter { entry -> needle.isEmpty() || matchesText(entry, needle) }
             .sortedWith(comparator())
             .toList()
+    }
+
+    /**
+     * 搜一条流水。文字那四栏照旧，金额也能搜：
+     * `25`、`25.5`、`¥1,200`、`1200.00` 都认，千分位和货币符号先剥掉再说。
+     *
+     * 金额认两种命中：一是分毫不差（`25` 命中 25.00），二是从元的那一位开始对上
+     * （`25` 也能找到 25.30）。不做「随便包含」——`25` 不该把 125.00 也捞出来，
+     * 那样搜金额就没意义了。退过款的那笔两种口径都试：净额和原来的金额。
+     */
+    private fun matchesText(entry: Entry, needle: String): Boolean {
+        if (entry.counterparty.contains(needle, ignoreCase = true) ||
+            entry.note.contains(needle, ignoreCase = true) ||
+            entry.category.contains(needle, ignoreCase = true) ||
+            entry.account.contains(needle, ignoreCase = true)
+        ) {
+            return true
+        }
+        val money = moneyNeedle(needle) ?: return false
+        val (cents, digits) = money
+        val net = abs(entry.effectiveAmount)
+        if (net == cents || abs(entry.amount) == cents) return true
+        return Fmt.cents(net).replace(",", "").startsWith(digits)
+    }
+
+    /** 「25」「25.5」「¥1,200」「1200.00」→ 分 + 剥干净的数字串；不像金额就返回 null。 */
+    private fun moneyNeedle(text: String): Pair<Long, String>? {
+        val cleaned = text.trim()
+            .removePrefix("¥")
+            .removePrefix("￥")
+            .replace(",", "")
+            .replace("，", "")
+        if (cleaned.isEmpty()) return null
+        if (cleaned.any { !it.isDigit() && it != '.' }) return null
+        if (cleaned.count { it == '.' } > 1) return null
+        val cents = Fmt.parseYuan(cleaned)?.takeIf { it > 0 } ?: return null
+        return cents to cleaned
     }
 
     private fun inRange(date: String): Boolean =

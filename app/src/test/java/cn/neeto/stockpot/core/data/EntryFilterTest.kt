@@ -107,6 +107,35 @@ class EntryFilterTest {
     }
 
     @Test
+    fun `搜索能命中金额，几种写法都认`() {
+        // 1200 元那笔：整数、带千分位、带货币符号、带小数都该找得到
+        listOf("1200", "1,200", "¥1200", "1200.00", "1200.0").forEach { needle ->
+            assertEquals(
+                "搜「$needle」",
+                listOf("2"),
+                EntryFilter().apply(entries, "2026-11", query = needle).map { it.id },
+            )
+        }
+        // 30 元那笔
+        assertEquals(listOf("3"), EntryFilter().apply(entries, "2026-11", query = "30").map { it.id })
+    }
+
+    @Test
+    fun `金额搜索不会把尾数一样的也捞出来`() {
+        // 「25」不该命中 125.00：搜金额得是个准数，随便包含就没意义了
+        assertTrue(EntryFilter().apply(entries, "2026-11", query = "25").isEmpty())
+        // 但同一位数往后带小数的要认：50 命中 50.00
+        assertEquals(listOf("1", "5"), EntryFilter().apply(entries, "2026-11", query = "50").map { it.id }.sorted())
+    }
+
+    @Test
+    fun `退过款的那笔净额和原价都能搜到`() {
+        // id 5：200 元退掉 150，净额 50
+        assertEquals(listOf("5"), EntryFilter().apply(entries, "2026-11", query = "200").map { it.id })
+        assertEquals(listOf("1", "5"), EntryFilter().apply(entries, "2026-11", query = "50").map { it.id }.sorted())
+    }
+
+    @Test
     fun `角标只数真正的条件`() {
         assertEquals(0, EntryFilter().activeCount)
         assertEquals(4, EntryFilter(kind = Kind.EXPENSE, account = "招行", minCents = 1_000, sort = "amountAsc").activeCount)

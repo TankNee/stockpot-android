@@ -204,7 +204,7 @@ fun EntriesScreen(
                     else -> "这个月还没有流水"
                 },
                 body = when {
-                    query.isNotBlank() -> "换个关键词，或者清掉筛选条件。"
+                    query.isNotBlank() -> "换个关键词试试，金额也能搜，像 25 或 25.50 这样写。"
                     !filter.isEmpty -> "把条件放宽一点，或者点上面的标签撤掉一个。"
                     else -> "导入账单，或者点右下角记一笔。"
                 },
@@ -875,7 +875,7 @@ private fun SearchField(
             decorationBox = { inner ->
                 Box(Modifier.fillMaxWidth()) {
                     if (query.isEmpty()) {
-                        Text("搜商家、备注、分类", fontSize = 14.sp, color = colors.ink3)
+                        Text("搜商家、备注、分类或金额", fontSize = 14.sp, color = colors.ink3)
                     }
                     inner()
                 }
