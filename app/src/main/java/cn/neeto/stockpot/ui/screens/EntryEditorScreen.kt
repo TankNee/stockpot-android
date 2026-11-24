@@ -84,7 +84,6 @@ import cn.neeto.stockpot.ui.components.PotPillButton
 import cn.neeto.stockpot.ui.components.PillTone
 import cn.neeto.stockpot.ui.components.Amount
 import cn.neeto.stockpot.ui.components.Chip
-import cn.neeto.stockpot.ui.components.EntryRow
 import cn.neeto.stockpot.ui.components.Hairline
 import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.Segmented
@@ -111,6 +110,8 @@ fun EntryEditorScreen(
     onOpenEntry: ((Entry) -> Unit)? = null,
     onLinkRefund: ((String, String) -> Unit)? = null,
     onUnlinkRefund: ((String) -> Unit)? = null,
+    /** 打开整页的「挑一笔」：从一堆退款/消费里挑出对面那条。 */
+    onPickRefund: ((Entry) -> Unit)? = null,
     /** 从关联跳过来之后，左上角退回上一条。 */
     onBack: (() -> Unit)? = null,
 ) {
@@ -137,7 +138,6 @@ fun EntryEditorScreen(
     var showTimePicker by remember { mutableStateOf(false) }
     var showAccountPicker by remember { mutableStateOf(false) }
     var showProjectPicker by remember(existing?.id) { mutableStateOf(false) }
-    var showRefundPicker by remember { mutableStateOf(false) }
 
     // 对面那条实时取：刚关联完 ledger 就变了，卡片要立刻显示成已关联
     val linkedEntry = remember(existing?.id, existing?.refundLinkId, ledger.entries) {
@@ -149,7 +149,8 @@ fun EntryEditorScreen(
     val isRefundRow = existing != null && LedgerOps.isRefundRow(existing)
     // 手工配对对所有账目开放（以前只有「已退过一点」和退款行才看得见这张卡，
     // 一笔从没配过的新消费根本没入口）
-    val canLinkRefund = existing != null && onLinkRefund != null && existing.kind != Kind.TRANSFER
+    val canLinkRefund = existing != null && onLinkRefund != null && onPickRefund != null &&
+        existing.kind != Kind.TRANSFER
 
     // 账户候选：资产页里勾了「记账时可被选择」的账户优先，再补上历史导入留下的账户名
     val accountCandidates = remember(ledger.wallets, ledger.accounts) {
@@ -415,7 +416,7 @@ fun EntryEditorScreen(
                         linked = linkedEntry,
                         isRefundRow = isRefundRow,
                         onOpen = { linkedEntry?.let { onOpenEntry?.invoke(it) } },
-                        onLink = { showRefundPicker = true },
+                        onLink = { onPickRefund?.invoke(existing) },
                         onUnlink = if (linkedEntry != null && onUnlinkRefund != null) {
                             { onUnlinkRefund.invoke(existing.id) }
                         } else {
@@ -467,20 +468,6 @@ fun EntryEditorScreen(
             onPick = {
                 account = it
                 showAccountPicker = false
-            },
-        )
-    }
-
-    if (showRefundPicker && existing != null) {
-        RefundPickerSheet(
-            ledger = ledger,
-            entry = existing,
-            onDismiss = { showRefundPicker = false },
-            onPick = { other ->
-                showRefundPicker = false
-                val expenseId = if (existing.kind == Kind.EXPENSE) existing.id else other.id
-                val refundId = if (existing.kind == Kind.EXPENSE) other.id else existing.id
-                onLinkRefund?.invoke(expenseId, refundId)
             },
         )
     }
@@ -693,100 +680,6 @@ private fun RefundLinkCard(
 /** 一条账目的显示名，和列表行用的是同一套回退顺序。 */
 private fun entryTitle(entry: Entry): String = entry.counterparty.ifEmpty {
     entry.note.ifEmpty { entry.category.ifEmpty { "未命名" } }
-}
-
-/** 手动配对的候选弹层：支出挑退款，退款挑支出。金额对不上也能放开挑。 */
-@Composable
-private fun RefundPickerSheet(
-    ledger: Ledger,
-    entry: Entry,
-    onDismiss: () -> Unit,
-    onPick: (Entry) -> Unit,
-) {
-    val colors = LocalPotColors.current
-    val isExpense = entry.kind == Kind.EXPENSE
-    // 金额对不上不代表配错：跨平台、分期退、手续费吃掉一点都常见
-    var loose by remember { mutableStateOf(false) }
-    val candidates = remember(ledger.entries, entry.id, loose) {
-        LedgerOps.refundCandidates(
-            ledger = ledger,
-            entry = entry,
-            limit = if (loose) 40 else 24,
-            strict = !loose,
-        )
-    }
-    PotSheet(onDismiss = onDismiss) {
-        Text(
-            text = if (isExpense) "挑一笔退款" else "挑原来的消费",
-            style = MaterialTheme.typography.titleLarge,
-            color = colors.ink,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = if (isExpense) {
-                "还没配过对的退款。配好之后两条都能互相跳，钱只算一次。"
-            } else {
-                "还没配过对的消费。配好之后这笔退款会从合计里让开，回到那笔消费的退款额里。"
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = colors.ink3,
-        )
-        Spacer(Modifier.height(10.dp))
-        Chip(
-            label = if (loose) "金额不一样也显示" else "只看金额对得上",
-            active = loose,
-            onClick = { loose = !loose },
-        )
-        Spacer(Modifier.height(12.dp))
-        if (candidates.isEmpty()) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.panel2)
-                    .padding(horizontal = 14.dp, vertical = 18.dp),
-            ) {
-                Text(
-                    text = if (isExpense) {
-                        "没找到能配的退款记录。可能那一条还没导入，或者已经配给别的消费了。"
-                    } else {
-                        "没找到能配的消费。试试先把那笔支出记上，再来关联。"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.ink3,
-                )
-            }
-        } else {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 380.dp)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                candidates.forEach { candidate ->
-                    Column {
-                        EntryRow(entry = candidate, showDate = true, onClick = { onPick(candidate) })
-                        // 放开金额之后，把差多少写出来：自己认账也要有个依据
-                        if (loose) {
-                            val gap = if (isExpense) {
-                                (entry.amount - entry.refundedAmount) - candidate.amount
-                            } else {
-                                (candidate.amount - candidate.refundedAmount) - entry.amount
-                            }
-                            Text(
-                                text = if (gap == 0L) "金额一致" else "差 ${Fmt.yuan(kotlin.math.abs(gap))}",
-                                fontSize = 11.sp,
-                                color = colors.ink3,
-                                modifier = Modifier.padding(start = 66.dp, bottom = 8.dp),
-                            )
-                        }
-                        Hairline()
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-    }
 }
 
 /**

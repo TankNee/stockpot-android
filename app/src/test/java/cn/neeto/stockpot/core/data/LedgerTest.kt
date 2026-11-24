@@ -127,9 +127,13 @@ class LedgerTest {
             ),
         )
         val expense = ledger.entries.first { it.id == "e1" }
-        // 默认不给「退款比消费还大」的，多退的 50 块得人来判断
+        // 默认只认分毫不差的；多退的 50 块得人来判断
         assertTrue(LedgerOps.refundCandidates(ledger, expense).isEmpty())
-        assertEquals(listOf("r1"), LedgerOps.refundCandidates(ledger, expense, strict = false).map { it.id })
+        assertTrue(LedgerOps.refundCandidates(ledger, expense, match = LedgerOps.RefundMatch.Partial).isEmpty())
+        assertEquals(
+            listOf("r1"),
+            LedgerOps.refundCandidates(ledger, expense, match = LedgerOps.RefundMatch.Any).map { it.id },
+        )
     }
 
     @Test
@@ -189,16 +193,30 @@ class LedgerTest {
                 Entry(id = "e1", date = "2026-11-01", kind = Kind.EXPENSE, amount = 30_000),
                 Entry(id = "small", date = "2026-11-02", kind = Kind.INCOME, amount = 10_000),
                 Entry(id = "big", date = "2026-11-02", kind = Kind.INCOME, amount = 50_000),
-                Entry(id = "taken", date = "2026-11-03", kind = Kind.INCOME, amount = 10_000, refundLinkId = "x"),
+                // 金额正好，但已经配给别人了
+                Entry(id = "taken", date = "2026-11-03", kind = Kind.INCOME, amount = 30_000, refundLinkId = "x"),
             ),
         )
-        val hits = LedgerOps.refundCandidates(ledger, ledger.entries.first { it.id == "e1" })
-        assertEquals(listOf("small"), hits.map { it.id })
+        val expense = ledger.entries.first { it.id == "e1" }
+        // 默认只认金额分毫不差的：30 块这笔没有可配的（正好那笔已被占）
+        assertTrue(LedgerOps.refundCandidates(ledger, expense).isEmpty())
+        // 放宽到部分退款，10 块那笔才出现；50 块比花的还多，只在「全部」里
+        assertEquals(
+            listOf("small"),
+            LedgerOps.refundCandidates(ledger, expense, match = LedgerOps.RefundMatch.Partial).map { it.id },
+        )
+        assertEquals(
+            listOf("small", "big"),
+            LedgerOps.refundCandidates(ledger, expense, match = LedgerOps.RefundMatch.Any).map { it.id },
+        )
 
-        // 退款行反过来只能挑还没退满的支出
+        // 退款行反过来：默认挑剩下余额正好等于这笔退款的消费
         val refundRow = ledger.entries.first { it.id == "small" }
-        val expenses = LedgerOps.refundCandidates(ledger, refundRow)
-        assertEquals(listOf("e1"), expenses.map { it.id })
+        assertTrue(LedgerOps.refundCandidates(ledger, refundRow).isEmpty())
+        assertEquals(
+            listOf("e1"),
+            LedgerOps.refundCandidates(ledger, refundRow, match = LedgerOps.RefundMatch.Partial).map { it.id },
+        )
     }
 
     @Test
@@ -226,7 +244,7 @@ class LedgerTest {
 
         // 挑对面的时候也不该把余额宝的收益摆出来（没写分类的 y3 还能当候选，让人自己认）
         val expense = ledger.entries.first { it.id == "e1" }
-        val loose = LedgerOps.refundCandidates(ledger, expense, strict = false).map { it.id }
+        val loose = LedgerOps.refundCandidates(ledger, expense, match = LedgerOps.RefundMatch.Any).map { it.id }
         assertTrue(loose.none { it == "y1" || it == "y2" })
         assertTrue(loose.contains("r1"))
     }

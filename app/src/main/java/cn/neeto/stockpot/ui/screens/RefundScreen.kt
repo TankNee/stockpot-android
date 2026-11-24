@@ -12,15 +12,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -63,7 +60,6 @@ import cn.neeto.stockpot.ui.components.PillTone
 import cn.neeto.stockpot.ui.components.PotCard
 import cn.neeto.stockpot.ui.components.PotConfirmSheet
 import cn.neeto.stockpot.ui.components.PotPillButton
-import cn.neeto.stockpot.ui.components.PotSheet
 import cn.neeto.stockpot.ui.components.overlayBottomPadding
 import cn.neeto.stockpot.ui.components.rememberHaptics
 import cn.neeto.stockpot.ui.theme.LocalPotColors
@@ -77,9 +73,8 @@ import java.time.temporal.ChronoUnit
  * 一笔从没配过的新消费根本没法手动关联。这里把三堆东西摊开：
  * 没配对的退款、还能退的支出、已经配好的对，都能搜、能按时间和金额筛。
  *
- * 选中一条 → 底下出现「挑对应的那笔」→ 弹层里按「金额一致 → 日期近」排，
- * 金额对不上也能放开挑（跨平台退、分期退、手续费吃掉一点都常见），
- * 每个候选旁边写着差多少，自己认账。
+ * 选中一条 → 底下出现「挑对应的那笔」→ 进 [RefundPickScreen]（整页，能搜能筛，
+ * 点开一条看细节再定），挑回来两边互相跳，钱只算一次。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -87,9 +82,9 @@ fun RefundScreen(
     ledger: Ledger,
     onBack: () -> Unit,
     onOpenEntry: (Entry) -> Unit,
-    onLink: (String, String) -> Unit,
     onUnlink: (String) -> Unit,
     onAutoPair: () -> Int,
+    onPickFor: (Entry) -> Unit,
     onToast: (String) -> Unit,
 ) {
     val colors = LocalPotColors.current
@@ -100,8 +95,6 @@ fun RefundScreen(
     var rangeLabel by rememberSaveable { mutableStateOf(RefundRange.All.label) }
     var matchOnly by rememberSaveable { mutableStateOf(false) }
     var selectedId by rememberSaveable { mutableStateOf("") }
-    // 正在挑对面的那条；非空时弹候选层
-    var pairingId by rememberSaveable { mutableStateOf("") }
     var confirmAuto by remember { mutableStateOf(false) }
 
     val tab = RefundTab.of(tabId)
@@ -321,27 +314,10 @@ fun RefundScreen(
                 PotPillButton(
                     text = "挑对应的那笔",
                     icon = Icons.Outlined.Link,
-                    onClick = { pairingId = selected.id },
+                    onClick = { onPickFor(selected) },
                 )
             }
         }
-    }
-
-    val pairing = ledger.entries.firstOrNull { it.id == pairingId }
-    if (pairing != null) {
-        CandidateSheet(
-            ledger = ledger,
-            entry = pairing,
-            onDismiss = { pairingId = "" },
-            onPick = { other ->
-                pairingId = ""
-                selectedId = ""
-                val expenseId = if (pairing.kind == Kind.EXPENSE) pairing.id else other.id
-                val refundId = if (pairing.kind == Kind.EXPENSE) other.id else pairing.id
-                onLink(expenseId, refundId)
-                onToast("已关联 · 这笔记账里退的钱只算一次")
-            },
-        )
     }
 
     if (confirmAuto) {
@@ -555,103 +531,6 @@ private fun PairLine(entry: Entry, label: String, onClick: () -> Unit) {
     }
 }
 
-/* ------------------------------ 挑对面 ------------------------------ */
-
-@Composable
-private fun CandidateSheet(
-    ledger: Ledger,
-    entry: Entry,
-    onDismiss: () -> Unit,
-    onPick: (Entry) -> Unit,
-) {
-    val colors = LocalPotColors.current
-    val isExpense = entry.kind == Kind.EXPENSE
-    // 金额对不上不代表配错：跨平台退、分期退、手续费吃掉一点都常见
-    var loose by remember { mutableStateOf(false) }
-    // 候选可能几十条，挑的时候也得能搜
-    var query by remember { mutableStateOf("") }
-    val keyword = query.trim()
-    val all = remember(ledger.entries, entry.id, loose) {
-        LedgerOps.refundCandidates(
-            ledger = ledger,
-            entry = entry,
-            limit = if (loose) 40 else 24,
-            strict = !loose,
-        )
-    }
-    val candidates = remember(all, keyword) {
-        if (keyword.isEmpty()) all else all.filter { refundHay(it).contains(keyword, ignoreCase = true) }
-    }
-
-    PotSheet(onDismiss = onDismiss) {
-        Text(
-            text = if (isExpense) "这笔退的是哪一笔？" else "这笔退款退的是哪笔消费？",
-            style = MaterialTheme.typography.titleLarge,
-            color = colors.ink,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = buildString {
-                append("当前 ${Fmt.yuan(entry.amount)} · ${Fmt.dayLabel(entry.date)}")
-                entry.counterparty.takeIf { it.isNotBlank() }?.let { append(" · $it") }
-                append(if (isExpense) "。还没配过对的退款列在下面。" else "。还没配过对的消费列在下面。")
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = colors.ink3,
-        )
-        Spacer(Modifier.height(10.dp))
-        SearchBar(
-            value = query,
-            placeholder = "搜平台、分类、账户或金额",
-            onValueChange = { query = it },
-        )
-        Spacer(Modifier.height(8.dp))
-        Chip(
-            label = if (loose) "金额不一样也显示" else "只看金额对得上",
-            active = loose,
-            onClick = { loose = !loose },
-        )
-        Spacer(Modifier.height(10.dp))
-        if (candidates.isEmpty()) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.panel2)
-                    .padding(horizontal = 14.dp, vertical = 18.dp),
-            ) {
-                Text(
-                    text = when {
-                        keyword.isNotEmpty() -> "没搜到「$keyword」。换个词，或者把搜索清掉看看全部。"
-                        isExpense -> "没有能配的退款了。可能那一条还没导入，或者已经配给了别的消费。"
-                        else -> "没有能配的消费了。先把那笔支出记上，再回来关联。"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.ink3,
-                )
-            }
-        } else {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 400.dp)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                candidates.forEach { candidate ->
-                    RefundEntryRow(
-                        entry = candidate,
-                        hint = gapLabel(entry, candidate, isExpense),
-                        selected = false,
-                        onClick = { onPick(candidate) },
-                    )
-                    Hairline()
-                }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-    }
-}
-
 /** 搜索用的那串字：平台、备注、分类、账户、金额都能搜到。金额按元写，25.00 这种。 */
 private fun refundHay(entry: Entry): String = buildString {
     append(entry.counterparty).append(' ')
@@ -659,26 +538,4 @@ private fun refundHay(entry: Entry): String = buildString {
     append(entry.category).append(' ')
     append(entry.account).append(' ')
     append(Fmt.cents(entry.amount))
-}
-
-/** 放开金额之后，差多少得写出来：自己认账也要有个依据。 */
-private fun gapLabel(entry: Entry, candidate: Entry, isExpense: Boolean): String {
-    val gap = if (isExpense) {
-        (entry.amount - entry.refundedAmount) - candidate.amount
-    } else {
-        (candidate.amount - candidate.refundedAmount) - entry.amount
-    }
-    val dateGap = runCatching {
-        ChronoUnit.DAYS.between(LocalDate.parse(candidate.date), LocalDate.parse(entry.date))
-    }.getOrNull()
-    val days = when {
-        dateGap == null -> ""
-        dateGap == 0L -> " · 同一天"
-        else -> " · 相隔 ${kotlin.math.abs(dateGap)} 天"
-    }
-    return when {
-        gap == 0L -> "金额一致$days"
-        gap > 0L -> "少退 ${Fmt.yuan(gap)}$days"
-        else -> "多退 ${Fmt.yuan(-gap)}$days"
-    }
 }

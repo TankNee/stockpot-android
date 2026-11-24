@@ -62,6 +62,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -98,6 +99,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.data.StockMath
 import cn.neeto.stockpot.core.model.Entry
+import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.core.util.Documents
@@ -115,6 +117,7 @@ import cn.neeto.stockpot.ui.screens.AccountScreen
 import cn.neeto.stockpot.ui.screens.AssetsScreen
 import cn.neeto.stockpot.ui.screens.CategoriesScreen
 import cn.neeto.stockpot.ui.screens.DataScreen
+import cn.neeto.stockpot.ui.screens.RefundPickScreen
 import cn.neeto.stockpot.ui.screens.RefundScreen
 import cn.neeto.stockpot.ui.screens.EntriesScreen
 import cn.neeto.stockpot.ui.screens.EntryEditorScreen
@@ -249,6 +252,11 @@ fun PotRoot(
     // 编辑页从哪儿长出来：行自己在布局时把位置登记进 rowAnchors，点开时按条目 id 取一次
     val rowAnchors = remember { RowAnchors() }
     var editorOrigin by remember { mutableStateOf<Rect?>(null) }
+    // 「挑一笔」是整页，压在编辑页之上：从编辑页、退款页都能进，关掉回到来的地方。
+    // 退出动画放完之前内容还得留着，所以额外记一份「最后打开过的那条」。
+    var pickForId by rememberSaveable { mutableStateOf("") }
+    var pickHold by remember { mutableStateOf<Entry?>(null) }
+
     /** 展开进度：0 = 还缩在那一行里，1 = 整页铺开。 */
     val editorProgress = remember { Animatable(0f) }
     /** 退出动画放完之前编辑页还得留着，所以「该不该显示」和「想不想显示」分开记。 */
@@ -420,6 +428,11 @@ fun PotRoot(
         // 行还没布局过（理论上不会）就退回加号那一带，总比从屏幕正中间凭空长出来好
         editorOrigin = entry?.let { rowAnchors.rectOf(it.id) } ?: addOrigin()
         editorOpen = true
+    }
+
+    /** 打开「挑一笔」整页：挑的是 [entry] 的对面。 */
+    fun openRefundPick(entry: Entry) {
+        pickForId = entry.id
     }
 
     /** 跳到对面那条，当前这条压进栈，返回箭头能原路退回来。 */
@@ -597,11 +610,9 @@ fun PotRoot(
                                         ledger = ledger,
                                         onBack = { popOverlay() },
                                         onOpenEntry = { openEditor(it, it.date) },
-                                        onLink = { expenseId, refundId ->
-                                            vm.linkRefund(expenseId, refundId)
-                                        },
                                         onUnlink = { vm.unlinkRefund(it) },
                                         onAutoPair = { vm.autoPairRefunds() },
+                                        onPickFor = { openRefundPick(it) },
                                         onToast = { toast = it },
                                     )
 
@@ -961,7 +972,38 @@ fun PotRoot(
                         onOpenEntry = { openLinkedEntry(it) },
                         onLinkRefund = { expenseId, refundId -> vm.linkRefund(expenseId, refundId) },
                         onUnlinkRefund = { vm.unlinkRefund(it) },
+                        onPickRefund = { openRefundPick(it) },
                         onBack = if (editorTrail.isEmpty()) null else ({ popLinkedEntry() }),
+                    )
+                }
+            }
+
+            // 「挑一笔」压在编辑页之上：两边都能进来，关掉就回到来的那一层。
+            // 用一张整页而不是弹层——候选几十条、还要搜索和看细节，半屏根本不够用。
+            val pickTarget = pickForId.let { id -> ledger.entries.firstOrNull { it.id == id } }
+            SideEffect { if (pickTarget != null) pickHold = pickTarget }
+            val picking = pickTarget ?: pickHold
+            AnimatedVisibility(
+                visible = pickTarget != null,
+                enter = slideInHorizontally(
+                    animationSpec = tween(240, easing = FastOutSlowInEasing),
+                ) { width -> width } + fadeIn(tween(180)),
+                exit = slideOutHorizontally(
+                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                ) { width -> width } + fadeOut(tween(160)),
+            ) {
+                if (picking != null) {
+                    RefundPickScreen(
+                        ledger = ledger,
+                        entry = picking,
+                        onBack = { pickForId = "" },
+                        onPick = { other ->
+                            val expenseId = if (picking.kind == Kind.EXPENSE) picking.id else other.id
+                            val refundId = if (picking.kind == Kind.EXPENSE) other.id else picking.id
+                            vm.linkRefund(expenseId, refundId)
+                            pickForId = ""
+                            toast = "已关联 · 这笔账里退的钱只算一次"
+                        },
                     )
                 }
             }

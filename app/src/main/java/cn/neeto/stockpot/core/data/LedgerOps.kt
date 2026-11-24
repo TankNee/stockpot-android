@@ -214,15 +214,42 @@ object LedgerOps {
     }
 
     /**
+     * 挑候选时金额放宽到哪一档。
+     *
+     * 以前只有「严 / 松」两个开关，严的那个其实是「退款不超过消费余额」，
+     * 于是「只看金额对得上」的列表里全是十几块的零星退款，看着像没筛。
+     */
+    enum class RefundMatch(val id: String, val label: String, val hint: String) {
+        /** 金额分毫不差：退回来多少，这笔就少花多少 */
+        Exact("exact", "金额一致", "差一分都不出现"),
+        /** 只允许少退：部分退款、手续费吃掉一点都在这档 */
+        Partial("partial", "允许少退", "退的钱不超过这笔花的"),
+        /** 都摆出来，自己认 */
+        Any("any", "全部", "差多少会写在行里"),
+        ;
+
+        companion object {
+            fun of(id: String): RefundMatch = entries.firstOrNull { it.id == id } ?: Exact
+        }
+    }
+
+    /**
      * 手动配对时的候选：支出找退款行，退款行找支出。
      *
-     * 已经配了别人的不出现（先解开再点），金额对不上也排除；剩下的按
-     * 「金额一样 → 日期近」排，最可能是它。日期只用来排序，不做硬过滤——
-     * 跨月退款很常见。
+     * 已经配了别人的不出现（先解开再点）。金额按 [match] 放行，默认只认
+     * 分毫不差的；剩下的按「金额是否正好 → 日期远近」排，最可能是它排最前。
+     * 日期不做硬过滤——跨月、跨季度的退款很常见，筛选交给页面上的时间范围。
      */
-    fun refundCandidates(ledger: Ledger, entry: Entry, limit: Int = 24, strict: Boolean = true): List<Entry> {
+    fun refundCandidates(
+        ledger: Ledger,
+        entry: Entry,
+        limit: Int = 24,
+        match: RefundMatch = RefundMatch.Exact,
+    ): List<Entry> {
         val pool = ledger.entries.filter { it.id != entry.id && !it.archived }
         val target = entry.kind == Kind.EXPENSE
+        // 这笔还没退掉的余额：支出看 amount - refundedAmount，退款行就是它自己
+        val remaining = entry.amount - entry.refundedAmount
         return pool.asSequence()
             .filter { candidate ->
                 if (target) {
@@ -234,19 +261,32 @@ object LedgerOps {
                 }
             }
             .filter { candidate ->
-                // strict = false 是「手动挑」：金额对不上也让人看见，自己认就行
-                if (!strict) {
-                    true
-                } else if (target) {
-                    // 退款不能比这笔消费还大（部分退款的余量够就行）
-                    candidate.amount <= entry.amount - entry.refundedAmount
-                } else {
-                    candidate.amount - candidate.refundedAmount >= entry.amount
+                when (match) {
+                    RefundMatch.Any -> true
+                    // 支出这边：退款要正好等于这笔还没退的余额；
+                    // 退款这边：挑的那笔消费，剩下的余额要正好等于这笔退款
+                    RefundMatch.Exact -> if (target) {
+                        candidate.amount == remaining
+                    } else {
+                        candidate.amount - candidate.refundedAmount == entry.amount
+                    }
+                    // 部分退款：退回来的比花掉的少，剩下的钱还是花了
+                    RefundMatch.Partial -> if (target) {
+                        candidate.amount <= remaining
+                    } else {
+                        candidate.amount - candidate.refundedAmount >= entry.amount
+                    }
                 }
             }
             .sortedWith(
-                compareByDescending<Entry> { if (it.amount == entry.amount) 1 else 0 }
-                    .thenBy { distance(it.date, entry.date) },
+                compareByDescending<Entry> { candidate ->
+                    val exact = if (target) {
+                        candidate.amount == remaining
+                    } else {
+                        candidate.amount - candidate.refundedAmount == entry.amount
+                    }
+                    if (exact) 1 else 0
+                }.thenBy { distance(it.date, entry.date) },
             )
             .take(limit)
             .toList()
@@ -323,8 +363,9 @@ object LedgerOps {
         var linked = 0
         val pending = refundOverview(ledger).pendingRefunds.sortedBy { it.date }
         for (refund in pending) {
-            val candidates = refundCandidates(next, refund, limit = 8, strict = true)
-                .filter { it.amount == refund.amount && distance(it.date, refund.date) <= maxDays }
+            // 只认分毫不差的：差一点的留给人在挑对面那页看
+            val candidates = refundCandidates(next, refund, limit = 8, match = RefundMatch.Exact)
+                .filter { distance(it.date, refund.date) <= maxDays }
             // 只有一个候选才动手；两个都能对上说明这笔账得人看
             val target = candidates.singleOrNull() ?: continue
             if (next.entries.firstOrNull { it.id == refund.id }?.refundLinkId?.isNotEmpty() == true) continue
