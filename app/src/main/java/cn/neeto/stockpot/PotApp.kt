@@ -9,6 +9,13 @@ import cn.neeto.stockpot.core.net.Updater
 import cn.neeto.stockpot.core.settings.AppIcon
 import cn.neeto.stockpot.core.settings.AuthStore
 import cn.neeto.stockpot.core.settings.SettingsStore
+import cn.neeto.stockpot.widget.WidgetRefresh
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class PotApp : Application() {
 
@@ -26,6 +33,10 @@ class PotApp : Application() {
 
     lateinit var updater: Updater
         private set
+
+    /** 刷桌面小组件用。不跟界面走，App 在后台改了账也要让卡片跟上。 */
+    private val background = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var widgetJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -52,5 +63,17 @@ class PotApp : Application() {
 
         // 开机顺手问一句有没有新版：失败不出声，设置页里照旧显示「还没检查过」
         updater.check(silent = true)
+
+        // 小组件跟着账本走：落盘那边有 180ms 防抖，这里再等一会儿，
+        // 一批改动合完了只重画一次，不是为了省电，是为了别让桌面抖个不停
+        background.launch {
+            store.data.collect {
+                widgetJob?.cancel()
+                widgetJob = background.launch {
+                    delay(1200)
+                    WidgetRefresh.all(this@PotApp)
+                }
+            }
+        }
     }
 }

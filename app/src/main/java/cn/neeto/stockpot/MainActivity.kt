@@ -28,10 +28,14 @@ class MainActivity : ComponentActivity() {
     /** 从别的 App 分享进来的账单，交给导入页解析。 */
     private var sharedFile by mutableStateOf<Documents.Picked?>(null)
 
+    /** 长按桌面图标点进来的那一下。消费掉就清空，切 tab 回来不该再执行一次。 */
+    private var launchAction by mutableStateOf<LaunchAction?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         readSharedIntent(intent)
+        readLaunchAction(intent)
         setContent {
             val prefs by viewModel.prefs.collectAsStateWithLifecycle()
             PotTheme(prefs) {
@@ -39,6 +43,8 @@ class MainActivity : ComponentActivity() {
                     vm = viewModel,
                     incomingFile = sharedFile,
                     onIncomingConsumed = { sharedFile = null },
+                    launchAction = launchAction,
+                    onLaunchConsumed = { launchAction = null },
                 )
             }
         }
@@ -48,6 +54,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         readSharedIntent(intent)
+        readLaunchAction(intent)
     }
 
     override fun onStart() {
@@ -59,6 +66,11 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         viewModel.flush()
+    }
+
+    private fun readLaunchAction(intent: Intent?) {
+        val name = AppShortcuts.of(intent?.action) ?: return
+        launchAction = LaunchAction(name, System.currentTimeMillis())
     }
 
     private fun readSharedIntent(intent: Intent?) {

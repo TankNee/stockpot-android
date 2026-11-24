@@ -1,4 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Stockpot</string>
+
+    <!-- 桌面长按图标弹出来的那几个快捷方式 -->
+    <string name="shortcut_new_short">记一笔</string>
+    <string name="shortcut_new_long">记一笔新的账</string>
+    <string name="shortcut_entries_short">流水</string>
+    <string name="shortcut_entries_long">看这个月的流水</string>
+    <string name="shortcut_refunds_short">退款配对</string>
+    <string name="shortcut_refunds_long">把退款和原来的消费对上</string>
+    <string name="shortcut_import_short">导入账单</string>
+    <string name="shortcut_import_long">导微信或支付宝账单</string>
+
+    <!-- 桌面小组件 -->
+    <string name="widget_month_title">本月支出</string>
+    <string name="widget_month_desc">这个月花了多少，收入结余一眼看全</string>
+    <string name="widget_recent_title">最近流水</string>
+    <string name="widget_recent_desc">最近几笔账，带本月小计</string>
 </resources>

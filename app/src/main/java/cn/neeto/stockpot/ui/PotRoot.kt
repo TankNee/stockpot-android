@@ -98,6 +98,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.data.StockMath
+import cn.neeto.stockpot.AppShortcuts
+import cn.neeto.stockpot.LaunchAction
 import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
@@ -217,6 +219,9 @@ fun PotRoot(
     vm: PotViewModel,
     incomingFile: Documents.Picked?,
     onIncomingConsumed: () -> Unit,
+    /** 长按桌面图标点进来的那一下；执行完由外面清掉。 */
+    launchAction: LaunchAction? = null,
+    onLaunchConsumed: () -> Unit = {},
 ) {
     val colors = LocalPotColors.current
     val ledger by vm.ledger.collectAsStateWithLifecycle()
@@ -460,6 +465,25 @@ fun PotRoot(
         val current = decodeTrail(tabTrail)
         val existing = current.indexOf(id)
         tabTrail = encodeTrail(if (existing >= 0) current.take(existing + 1) else current + id)
+    }
+
+    // 长按图标点进来的：记一笔直接开编辑页，其余落到对应那一页。
+    // 带 id 的 key 是为了「同一个快捷方式连点两次」也能再执行一遍。
+    LaunchedEffect(launchAction) {
+        val request = launchAction ?: return@LaunchedEffect
+        when (request.name) {
+            AppShortcuts.NEW_ENTRY -> openEditor(null, Fmt.today())
+            AppShortcuts.ENTRIES -> selectTab("entries")
+            AppShortcuts.REFUNDS -> {
+                selectTab("settings")
+                openOverlay(ROUTE_REFUNDS)
+            }
+            AppShortcuts.IMPORT -> {
+                selectTab("settings")
+                openOverlay(ROUTE_IMPORT)
+            }
+        }
+        onLaunchConsumed()
     }
 
     val stateHolder = rememberSaveableStateHolder()

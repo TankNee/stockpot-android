@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 最近流水：4×3 起，多高就画几行，最多六行 -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/widget_recent_desc"
+    android:initialLayout="@layout/widget_card"
+    android:minWidth="250dp"
+    android:minHeight="180dp"
+    android:previewLayout="@layout/widget_recent_preview"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellHeight="3"
+    android:targetCellWidth="4"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

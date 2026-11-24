@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  长按桌面图标弹出来的那一列。
+  前两个是高频动作（记一笔、看流水），后两个是把人送进设置里的两页。
+  图标都是 24dp 单色矢量，系统会自己套一层底。
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_add"
+        android:shortcutId="new_entry"
+        android:shortcutLongLabel="@string/shortcut_new_long"
+        android:shortcutShortLabel="@string/shortcut_new_short">
+        <intent
+            android:action="cn.neeto.stockpot.action.NEW_ENTRY"
+            android:targetClass="cn.neeto.stockpot.MainActivity"
+            android:targetPackage="cn.neeto.stockpot" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_entries"
+        android:shortcutId="entries"
+        android:shortcutLongLabel="@string/shortcut_entries_long"
+        android:shortcutShortLabel="@string/shortcut_entries_short">
+        <intent
+            android:action="cn.neeto.stockpot.action.ENTRIES"
+            android:targetClass="cn.neeto.stockpot.MainActivity"
+            android:targetPackage="cn.neeto.stockpot" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_refunds"
+        android:shortcutId="refunds"
+        android:shortcutLongLabel="@string/shortcut_refunds_long"
+        android:shortcutShortLabel="@string/shortcut_refunds_short">
+        <intent
+            android:action="cn.neeto.stockpot.action.REFUNDS"
+            android:targetClass="cn.neeto.stockpot.MainActivity"
+            android:targetPackage="cn.neeto.stockpot" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_import"
+        android:shortcutId="import_bill"
+        android:shortcutLongLabel="@string/shortcut_import_long"
+        android:shortcutShortLabel="@string/shortcut_import_short">
+        <intent
+            android:action="cn.neeto.stockpot.action.IMPORT"
+            android:targetClass="cn.neeto.stockpot.MainActivity"
+            android:targetPackage="cn.neeto.stockpot" />
+    </shortcut>
+
+</shortcuts>
