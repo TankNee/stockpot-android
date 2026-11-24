@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -285,37 +286,48 @@ fun RefundScreen(
             }
         }
 
-        // 选中之后的动作条：手机上比长按菜单好按，也不用记手势
+        // 选中之后的动作条：手机上比长按菜单好按，也不用记手势。
+        // 这条贴在屏幕最底下，得自己让开系统导航条——页面在叠加层里，
+        // 外层那套 insets 管不到这一层。
         if (selected != null) {
-            Row(
-                modifier = Modifier
+            Column(
+                Modifier
                     .fillMaxWidth()
                     .background(colors.panel)
-                    .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .navigationBarsPadding(),
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = "${if (selected.kind == Kind.EXPENSE) "这笔支出" else "这笔退款"} ${Fmt.yuan(selected.amount)}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = colors.ink,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = if (selected.kind == Kind.EXPENSE) "挑出退回来的那一笔" else "挑出它退的是哪笔消费",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.ink3,
-                        maxLines = 1,
+                Hairline()
+                Row(
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = "${if (selected.kind == Kind.EXPENSE) "这笔支出" else "这笔退款"} ${Fmt.yuan(selected.amount)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.ink,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = if (selected.kind == Kind.EXPENSE) {
+                                "挑出退回来的那一笔"
+                            } else {
+                                "挑出它退的是哪笔消费"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.ink3,
+                            maxLines = 1,
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    PotPillButton(
+                        text = "挑对应的那笔",
+                        icon = Icons.Outlined.Link,
+                        onClick = { onPickFor(selected) },
                     )
                 }
-                Spacer(Modifier.width(10.dp))
-                PotPillButton(
-                    text = "挑对应的那笔",
-                    icon = Icons.Outlined.Link,
-                    onClick = { onPickFor(selected) },
-                )
             }
         }
     }

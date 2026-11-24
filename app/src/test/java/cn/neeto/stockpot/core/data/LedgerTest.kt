@@ -220,6 +220,35 @@ class LedgerTest {
     }
 
     @Test
+    fun `a refund never picks an expense smaller than itself`() {
+        val ledger = emptyLedger().copy(
+            entries = listOf(
+                // 比退款还小的那笔永远配不上，连「全部」档也得挡掉
+                Entry(id = "small", date = "2026-11-01", kind = Kind.EXPENSE, amount = 5_000),
+                Entry(id = "same", date = "2026-11-02", kind = Kind.EXPENSE, amount = 20_000),
+                Entry(id = "big", date = "2026-11-01", kind = Kind.EXPENSE, amount = 30_000),
+                Entry(
+                    id = "refund", date = "2026-11-05", kind = Kind.INCOME,
+                    amount = 20_000, category = "退款",
+                ),
+            ),
+        )
+        val refund = ledger.entries.first { it.id == "refund" }
+
+        // 金额一致：只有剩下的钱正好等于退款的那笔
+        assertEquals(listOf("same"), LedgerOps.refundCandidates(ledger, refund).map { it.id })
+        // 全部：50 块那笔不出现；正好对上的排前面，其次花得多的
+        assertEquals(
+            listOf("same", "big"),
+            LedgerOps.refundCandidates(ledger, refund, match = LedgerOps.RefundMatch.Any).map { it.id },
+        )
+        assertEquals(
+            listOf("same", "big"),
+            LedgerOps.refundCandidates(ledger, refund, match = LedgerOps.RefundMatch.Partial).map { it.id },
+        )
+    }
+
+    @Test
     fun `fund earnings and money moving are not refunds`() {
         val ledger = emptyLedger().copy(
             entries = listOf(

@@ -237,8 +237,12 @@ object LedgerOps {
      * 手动配对时的候选：支出找退款行，退款行找支出。
      *
      * 已经配了别人的不出现（先解开再点）。金额按 [match] 放行，默认只认
-     * 分毫不差的；剩下的按「金额是否正好 → 日期远近」排，最可能是它排最前。
-     * 日期不做硬过滤——跨月、跨季度的退款很常见，筛选交给页面上的时间范围。
+     * 分毫不差的；剩下的按「金额是否正好 → 花得更多 → 日期更近」排，
+     * 最可能是它排最前。日期不做硬过滤——跨月、跨季度的退款很常见，
+     * 筛选交给页面上的时间范围。
+     *
+     * 退款去找消费时还有一条底线：那笔消费本身不能比退款还小，连「全部」
+     * 档也一样。退两百块不可能是从五十块的那笔里退出来的。
      */
     fun refundCandidates(
         ledger: Ledger,
@@ -262,7 +266,13 @@ object LedgerOps {
             }
             .filter { candidate ->
                 when (match) {
-                    RefundMatch.Any -> true
+                    RefundMatch.Any -> if (target) {
+                        true
+                    } else {
+                        // 退回 200 的那笔不可能出在只花了 50 的消费上。
+                        // 「全部」只是把金额放宽，这条底线不能破，否则挑起来全是废选项。
+                        candidate.amount >= entry.amount
+                    }
                     // 支出这边：退款要正好等于这笔还没退的余额；
                     // 退款这边：挑的那笔消费，剩下的余额要正好等于这笔退款
                     RefundMatch.Exact -> if (target) {
@@ -286,7 +296,11 @@ object LedgerOps {
                         candidate.amount - candidate.refundedAmount == entry.amount
                     }
                     if (exact) 1 else 0
-                }.thenBy { distance(it.date, entry.date) },
+                }
+                    // 挑消费的时候，花得多的排前面：一笔 200 的退款更像来自 300 那笔，
+                    // 而不是刚好也有 200 的零星小账。支出侧不看这个，全是 0。
+                    .thenByDescending { if (target) 0L else it.amount }
+                    .thenBy { distance(it.date, entry.date) },
             )
             .take(limit)
             .toList()

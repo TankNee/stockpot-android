@@ -187,7 +187,7 @@ fun RefundPickScreen(
                         "没有剩下 ${Fmt.yuan(entry.amount)} 的消费。切到「允许少退」或者「全部」再看看。"
                     window != PickWindow.All -> "把时间范围放回「全部」，或者换个金额档。"
                     isExpense -> "可能那一条还没导入，或者已经配给别的消费了（先解开那边）。"
-                    else -> "先把那笔支出记上，再回来关联。"
+                    else -> "没有花得比这笔退款还多的消费。先把那笔支出记上，或者切到「全部」看看。"
                 },
             )
         } else {
@@ -311,7 +311,8 @@ private fun CurrentCard(entry: Entry, isExpense: Boolean) {
             text = when {
                 isExpense && remaining != entry.amount -> "还要退 ${Fmt.yuan(remaining)}"
                 isExpense -> "找一笔金额 ${Fmt.yuan(entry.amount)} 的退款"
-                else -> "这笔退的是哪笔消费"
+                // 说清底线：比这笔退款还少的消费根本不在列表里
+                else -> "只列支出不少于 ${Fmt.yuan(entry.amount)} 的消费"
             },
             fontSize = 11.sp,
             color = colors.brandInk,
