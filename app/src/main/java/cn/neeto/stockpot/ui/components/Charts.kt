@@ -26,6 +26,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -65,7 +66,9 @@ fun DailyBars(
 
     data class Bar(val ratio: Float, val color: Color)
     val bars = remember(trend, maxValue, todayDay, isCurrentMonth, colors) {
-        val quiet = colors.brand.copy(alpha = 0.55f)
+        // 半透明压在深底上会二次变暗：浅色纸 0.55 刚好，深色纸要抬到 0.72，
+        // 否则整排柱子糊成背景的一部分。
+        val quiet = colors.brand.copy(alpha = if (colors.canvas.luminance() < 0.5f) 0.72f else 0.55f)
         trend.map { day ->
             val isToday = isCurrentMonth && day.day == todayDay
             val color = when {
@@ -77,7 +80,9 @@ fun DailyBars(
         }
     }
 
-    val tickStyle = remember(colors.ink3) { TextStyle(fontSize = 9.sp, color = colors.ink3) }
+    // 刻度是必须读的信息，不是装饰：10sp 起步、走 ink2。9sp 的 ink3 放在
+    // 深色纸上对比度够、字重却太细，扫一眼根本读不出来。
+    val tickStyle = remember(colors.ink2) { TextStyle(fontSize = 10.sp, color = colors.ink2) }
     val ticks = remember(trend, tickStyle) { dayTicks(trend, measurer, tickStyle) }
 
     Canvas(
@@ -171,7 +176,9 @@ fun DailyLine(
     val maxValue = remember(trend) { max(1L, trend.maxOfOrNull { it.expense } ?: 0L) }
     val isCurrentMonth = remember(trend, today) { trend.firstOrNull()?.date?.take(7) == today.take(7) }
     val todayDay = remember(today) { Fmt.dayOfMonth(today) }
-    val tickStyle = remember(colors.ink3) { TextStyle(fontSize = 9.sp, color = colors.ink3) }
+    // 刻度是必须读的信息，不是装饰：10sp 起步、走 ink2。9sp 的 ink3 放在
+    // 深色纸上对比度够、字重却太细，扫一眼根本读不出来。
+    val tickStyle = remember(colors.ink2) { TextStyle(fontSize = 10.sp, color = colors.ink2) }
     val ticks = remember(trend, tickStyle) { dayTicks(trend, measurer, tickStyle) }
     val lineColor = colors.brand
     val gradient = remember(lineColor) {
@@ -305,7 +312,9 @@ fun YearBars(
     val measurer = rememberTextMeasurer()
     val maxValue = remember(values) { max(1L, values.maxOrNull() ?: 0L) }
     val currentMonth = remember { Fmt.today().substring(5, 7).toIntOrNull() ?: 0 }
-    val tickStyle = remember(colors.ink3) { TextStyle(fontSize = 9.sp, color = colors.ink3) }
+    // 刻度是必须读的信息，不是装饰：10sp 起步、走 ink2。9sp 的 ink3 放在
+    // 深色纸上对比度够、字重却太细，扫一眼根本读不出来。
+    val tickStyle = remember(colors.ink2) { TextStyle(fontSize = 10.sp, color = colors.ink2) }
     val ticks = remember(tickStyle) {
         (1..12).filter { it % 3 == 1 }.map { month ->
             month to measurer.measure(AnnotatedString("$month"), tickStyle)
@@ -322,7 +331,7 @@ fun YearBars(
         val height = bottom - top
         val slot = size.width / 12f
         val barWidth = slot * 0.52f
-        val quiet = colors.brand.copy(alpha = 0.42f)
+        val quiet = colors.brand.copy(alpha = if (colors.canvas.luminance() < 0.5f) 0.72f else 0.42f)
         val radius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
 
         drawLine(colors.line, Offset(0f, bottom), Offset(size.width, bottom), 1.dp.toPx())
@@ -436,6 +445,9 @@ private fun CalendarCell(
     val ratio = day.expense.toFloat() / maxValue
     val tint = when {
         day.expense <= 0 -> colors.panel2
+        // 热力格是「一眼扫量级」用的，深色纸上底色本来就沉，
+        // 同一档 alpha 会比浅色纸淡一截，所以整体上调。
+        colors.canvas.luminance() < 0.5f -> colors.brand.copy(alpha = 0.14f + 0.46f * ratio)
         else -> colors.brand.copy(alpha = 0.07f + 0.36f * ratio)
     }
     val shape = RoundedCornerShape(9.dp)
