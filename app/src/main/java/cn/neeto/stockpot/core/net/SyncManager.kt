@@ -68,6 +68,9 @@ class SyncManager(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pushJob: Job? = null
 
+    /** 一轮同步跑完时又冒出改动，用它补一次（不动 pushJob，见 scheduleFollowUp）。 */
+    private var followUpJob: Job? = null
+
     /**
      * 一轮同步只跑一份，后来的人等它的结果。
      *
@@ -280,9 +283,16 @@ class SyncManager(
         retryAttempt = 0
         val syncedAt = doc.updatedAt.orEmpty()
         state.onSynced(doc.rev, syncedAt)
-        // 同步途中又记了一笔：账已经推上去了（那笔在 payload 里），但别急着清脏标记，
-        // 下一次改动/落地还会再推一次，免得这中间的修改被当成已同步。
-        if (localChanges == stamp) auth.dirty = false
+        // 同步途中又记了一笔：账已经推上去了（那笔在 payload 里），但别急着清脏标记。
+        //
+        // 这里必须补排一次：这一轮的 pushJob 已经跑完，不会再醒；而「等下一次编辑」
+        // 不靠谱——用户记完最后一笔就放下手机了。以前靠下一次 tryLock 失败 + 退避重试
+        // 兜住这种情况，现在同步改成排队了，得显式接上。
+        if (localChanges == stamp) {
+            auth.dirty = false
+        } else {
+            scheduleFollowUp()
+        }
         auth.lastSync = syncedAt
         _ui.update {
             it.copy(
@@ -292,6 +302,20 @@ class SyncManager(
                 error = null,
                 lastSync = syncedAt,
             )
+        }
+    }
+
+    /**
+     * 一轮同步跑完时本机又改过，就再补一次。
+     *
+     * 单独一条协程，不动 [pushJob]：这里常常是在 pushJob 自己里面被调到的，
+     * 取消它等于把自己掐掉。
+     */
+    private fun scheduleFollowUp() {
+        followUpJob?.cancel()
+        followUpJob = scope.launch {
+            delay(FOLLOW_UP_DELAY)
+            if (signedIn && auth.dirty) syncNow()
         }
     }
 
@@ -361,6 +385,7 @@ class SyncManager(
 
     private fun forgetSession() {
         pushJob?.cancel()
+        followUpJob?.cancel()
         auth.clear()
         state.reset()
         _ui.value = SyncUi()
@@ -373,6 +398,9 @@ class SyncManager(
     private companion object {
         /** 打字的时候别一直推：停下来 4 秒再同步。 */
         const val PUSH_DELAY = 4_000L
+
+        /** 补推不用再等 4 秒：改动已经在手里了，1.2 秒够把连点的那几笔并进来。 */
+        const val FOLLOW_UP_DELAY = 1_200L
     }
 }
 
