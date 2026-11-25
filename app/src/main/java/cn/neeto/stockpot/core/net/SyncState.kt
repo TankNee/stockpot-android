@@ -96,30 +96,13 @@ class SyncStateStore(context: Context) {
      * 载入示例数据，全都自动记上，也不会有哪个入口漏掉。
      */
     fun recordRemovals(before: Ledger, after: Ledger) {
-        val stamp = Fmt.stamp()
-        val fresh = LinkedHashMap<String, String>()
-        collect(before.entries, after.entries, LedgerMerge.ENTRIES) { it.id }.forEach { fresh[it] = stamp }
-        collect(before.projects, after.projects, LedgerMerge.PROJECTS) { it.id }.forEach { fresh[it] = stamp }
-        collect(before.wallets, after.wallets, LedgerMerge.WALLETS) { it.id }.forEach { fresh[it] = stamp }
-        collect(before.stockAccounts, after.stockAccounts, LedgerMerge.STOCK_ACCOUNTS) { it.id }
-            .forEach { fresh[it] = stamp }
-        collect(before.stocks, after.stocks, LedgerMerge.STOCKS) { it.id }.forEach { fresh[it] = stamp }
-        collect(before.imports, after.imports, LedgerMerge.IMPORTS) { it.id }.forEach { fresh[it] = stamp }
+        // 算哪些行没了这件事本身是纯的，挪到 SyncTombstones 里，单测能直接喂数据
+        val fresh = SyncTombstones.removals(before, after, Fmt.stamp())
         if (fresh.isEmpty()) return
         synchronized(lock) {
             state = state.copy(deleted = prune(state.deleted + fresh))
         }
         scheduleSave()
-    }
-
-    private fun <T> collect(before: List<T>, after: List<T>, collection: String, id: (T) -> String): List<String> {
-        if (before.isEmpty()) return emptyList()
-        val alive = after.mapTo(HashSet(after.size)) { id(it) }
-        return before.asSequence()
-            .map { id(it) }
-            .filter { it.isNotEmpty() && it !in alive }
-            .map { "$collection:$it" }
-            .toList()
     }
 
     private fun prune(map: Map<String, String>): Map<String, String> {

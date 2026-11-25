@@ -75,6 +75,10 @@ class SyncManager(
     @Volatile
     private var localChanges = 0L
 
+    /** 连续失败了几次。推成功或者又有新改动时归零。 */
+    @Volatile
+    private var retryAttempt = 0
+
     val signedIn: Boolean get() = auth.token.isNotBlank()
 
     /** 应用启动时调用：已经登录就顺手对一次账。 */
@@ -241,6 +245,7 @@ class SyncManager(
     }
 
     private fun settle(doc: LedgerDoc, stamp: Long) {
+        retryAttempt = 0
         val syncedAt = doc.updatedAt.orEmpty()
         state.onSynced(doc.rev, syncedAt)
         // 同步途中又记了一笔：账已经推上去了（那笔在 payload 里），但别急着清脏标记，
@@ -278,19 +283,33 @@ class SyncManager(
      */
     fun onLocalChange(before: Ledger, after: Ledger) {
         localChanges++
+        retryAttempt = 0
         state.recordRemovals(before, after)
         if (!signedIn) return
         auth.dirty = true
         schedulePush()
     }
 
-    fun schedulePush() {
+    fun schedulePush(delayMs: Long = PUSH_DELAY) {
         if (!signedIn) return
         pushJob?.cancel()
         pushJob = scope.launch {
-            delay(PUSH_DELAY)
-            syncNow()
+            delay(delayMs)
+            val ok = syncNow()
+            // 推失败就按 8s / 30s / 2min 退避再试。本地改动不能因为一次断网
+            // 就一直躺在机器里，等用户「下次编辑」是不靠谱的
+            if (!ok && signedIn && retryAttempt < SyncBackoff.maxAttempts) {
+                val wait = SyncBackoff.next(++retryAttempt)
+                if (wait != null) {
+                    log("push 失败，${wait / 1000}s 后重试（第 $retryAttempt 次）")
+                    schedulePush(wait)
+                }
+            }
         }
+    }
+
+    private fun log(message: String) {
+        android.util.Log.d("StockpotSync", message)
     }
 
     /** 清空云端那份（本地不动）。 */
