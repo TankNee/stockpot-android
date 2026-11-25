@@ -5,6 +5,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
+    jacoco
 }
 
 // 签名配置放在 keystore.properties，仓库里带了一份默认的：
@@ -39,8 +40,8 @@ android {
         applicationId = "cn.neeto.stockpot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 46
-        versionName = "0.19.2"
+        versionCode = 47
+        versionName = "0.19.3"
         vectorDrawables.useSupportLibrary = true
         buildConfigField("String", "DEFAULT_SERVER", "\"$defaultServer\"")
     }
@@ -128,6 +129,62 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    // 同步并发行为的测试：虚拟时间 + 可控取消
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     // 同步协议的测试：本机起一个假的 HTTP 服务，把请求方法/报文都对着发一遍
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+}
+
+// 单测和压测都在 JVM 上跑。50k 条账本的 JSON 编解码本身就要几十 MB 内存，
+// 堆给小了 GC 会把计时抖得没法看。
+tasks.withType<Test>().configureEach {
+    maxHeapSize = "2g"
+    // 压测报告直接落到 build/reports/perf，CI 读它贴进 job summary
+    systemProperty("perf.report.dir", layout.buildDirectory.dir("reports/perf").get().asFile.absolutePath)
+    extensions.configure(org.gradle.testing.jacoco.plugins.JacocoTaskExtension::class) {
+        // JaCoCo 的 agent 认不出 JDK 内部的一些类，不排除会刷警告
+        isIncludeNoLocationClasses = true
+        excludes = listOf("jdk.internal.*")
+    }
+    testLogging {
+        events("failed")
+        showStandardStreams = true
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+}
+
+jacoco {
+    toolVersion = "0.8.12"
+}
+
+// 覆盖率报告：只统计 JVM 单测能覆盖到的部分。Compose 界面、Activity 这些
+// 得跑仪器测试才有数字，混进来只会让百分比失真，索性排除掉。
+//
+// HTML 默认不生成：656 个类要摊成几千个小文件，Windows 上被杀软一个个扫过去
+// 能卡上十分钟。CI 里加 -PcoverageHtml=true 才出网页版，本地只留 XML（快得多）。
+tasks.register<org.gradle.testing.jacoco.tasks.JacocoReport>("coverageReport") {
+    dependsOn("testDebugUnitTest")
+    group = "verification"
+    description = "单元测试覆盖率（JVM）"
+    reports {
+        xml.required.set(true)
+        html.required.set(providers.gradleProperty("coverageHtml").isPresent)
+    }
+    sourceDirectories.setFrom(files("src/main/java"))
+    classDirectories.setFrom(
+        fileTree(layout.buildDirectory.dir("tmp/kotlin-classes/debug")) {
+            exclude(
+                "**/R.class",
+                "**/R$*.class",
+                "**/BuildConfig.*",
+                "**/Manifest*.*",
+                "**/*Test*.*",
+                // Compose 编译器生成的壳子，没有可执行的真代码
+                "**/ComposableSingletons*.*",
+                "**/*\$Composable*.*",
+                "**/ui/theme/**",
+            )
+        },
+    )
+    executionData.setFrom(fileTree(layout.buildDirectory) { include("**/*.exec") })
 }

@@ -137,6 +137,11 @@ iCost、通用 CSV、桌面端 `ledger.json`。导入前先预览（新增/重�
   不是逐条 diff：账本本来就是一份 JSON，推的就是这份文档。
 - **什么时候同步** — 改完停手 4 秒推一次；回到前台对一次账；点「立即同步」马上来一次。
   没网就安静失败，下次改动或进前台再试，记账不受影响。
+- **同时来了四个同步请求怎么办** — 开机 bootstrap、回前台、4 秒防抖、下拉刷新随时会撞在一起。
+  现在只有一份真的在跑，其它的等它结束，拿同一份结果（`core/net/SingleFlight.kt`）。
+  以前是抢锁，抢不到立刻返回失败，于是刚升级完打开应用下拉一下就会看到
+  「云端这次没对上」——其实云端正同步得好好的。整轮也挪到了 IO 线程，
+  五万条账时合并加打包 JSON 有一百毫秒上下，不能压在主线程上。
 - **换手机** — 装好应用 → 设置 → 登录同一个账号 → 云端那份合进来，接着记。
 - **删掉的东西不会再冒回来** — 每次本地改动都会比对前后两份账本，把消失的记录记成墓碑
   （`"entries:id" -> 删除时间`，存在 `sync-state.json`），随快照一起推上去。
@@ -306,7 +311,7 @@ app/src/main/java/cn/neeto/stockpot/
   res/font/barlow_*.ttf     金额用的数字字体（OFL，见 docs/Barlow-OFL.txt）
   ui/components/            卡片、分段控件、日历、环形图、流水行、左右滑翻月、下拉刷新、编辑页四种过场
   ui/screens/               总览 / 流水 / 资产 / 设置 / 账号 / 分类管理 / 关键词规则 / 项目列表与详情 / 导入页 / 记一笔
-app/src/test/java/…         84 个单元测试：解析、去重、退款、汇总、分类改名、JSON 兼容、日期换算、金额格式、筛选、标题交换、股票搜索、同步协议、安装包下载校验
+app/src/test/java/…         127 个单元测试 + 账本压测：解析、去重、退款、汇总、分类改名、JSON 兼容、日期换算、金额格式、筛选、标题交换、股票搜索、同步协议与并发、安装包下载校验、1k/20k/50k 条账本的耗时
 ```
 
 ## 构建
@@ -314,8 +319,32 @@ app/src/test/java/…         84 个单元测试：解析、去重、退款、�
 ```bash
 ./gradlew :app:assembleRelease    # app/build/outputs/apk/release/app-release.apk（已签名、R8）
 ./gradlew :app:assembleDebug      # app/build/outputs/apk/debug/app-debug.apk（包名带 .debug）
-./gradlew :app:testDebugUnitTest  # 单元测试
+./gradlew :app:testDebugUnitTest  # 单元测试 + 账本压测
 ```
+
+### 测试、压测、覆盖率
+
+```bash
+./gradlew :app:testDebugUnitTest                                   # 127 条，含压测
+./gradlew :app:testDebugUnitTest --tests "cn.neeto.stockpot.perf.*" # 只跑压测
+./gradlew :app:coverageReport -PcoverageHtml=true                   # 覆盖率（XML 默认有，HTML 可选）
+```
+
+账本压测（`app/src/test/java/cn/neeto/stockpot/perf/`）拿三档合成账本 —— 1k（日常）、
+20k（重度）、50k（五年账单）—— 跑那些「每进一次页面都要算一遍」的纯逻辑：
+流水筛选与排序（当月 / 全量区间）、月度汇总、每日柱、年度柱、插入一笔、
+退款总览与候选、同步的合并 / 墓碑比对 / JSON 编解码。每档先预热再测三遍取中位数，
+**超预算就让测试失败**：把 O(n) 写成 O(n²) 的那种改动能当场拦住。
+
+本机（x86）50k 条的数字：筛选 2ms、汇总 2ms、插入 10ms、合并 21ms、
+一次同步的 JSON 编码 61ms、解码 64ms。手机 CPU 慢 2~3 倍，预算按这个留的余量。
+报告落在 `app/build/reports/perf/ledger-perf.md`（CI 里贴进 job summary）。
+
+覆盖率分两个数看：**全仓**（含 Compose 界面，JVM 单测跑不到，所以低）和
+**核心逻辑**（`core/` 加刷新相关的那两个类）。故意不合成一个数——合起来只会互相误导。
+
+CI（`.github/workflows/ci.yml`）每次推送和 PR 跑这一整套：单测 + 覆盖率 + 压测，
+报告上传成 artifact；`release.yml` 出包前也会先过一遍单测，坏版本不发。
 
 `local.properties` 里的 `sdk.dir` 指向本机 Android SDK。
 

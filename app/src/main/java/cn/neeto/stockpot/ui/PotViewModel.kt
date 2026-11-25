@@ -33,6 +33,7 @@ import cn.neeto.stockpot.core.net.TwoFactorSetup
 import cn.neeto.stockpot.core.net.Updater
 import cn.neeto.stockpot.core.stock.QuoteClient
 import cn.neeto.stockpot.core.util.Avatars
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -153,25 +154,50 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
      * 账本本身是本地的，没什么可拉的，所以「刷」的是外面那两样：云端那一次对账、
      * 股票行情和日 K。两样都没有也照样转一下，回一句「已经是最新的」——
      * 否则下拉之后屏幕毫无反应，会让人以为手势没生效。
+     *
+     * 有两处以前会让人以为「刷新坏了」：一是同步撞上后台那一轮就直接报失败，
+     * 二是中途抛异常时 `_refreshing` 没复位，之后每次下拉都被自己挡住。
+     * 现在同步那边排队等结果，这里用 finally 保证转圈一定收回来。
      */
     fun pullRefresh(onDone: (String) -> Unit) {
         if (_refreshing.value) return
+        _refreshing.value = true
         viewModelScope.launch {
-            _refreshing.value = true
             val started = System.currentTimeMillis()
-            val parts = mutableListOf<String>()
-            if (sync.signedIn) parts += if (sync.syncNow()) "已和云端对齐" else "云端这次没对上"
+            var synced: Boolean? = null
+            var syncError: String? = null
             val stocks = store.data.value.stocks
-            if (stocks.isNotEmpty()) {
-                refreshQuotes(silent = true)
-                ensureDaily(stocks, force = true)
-                parts += "行情已刷新"
+            try {
+                if (sync.signedIn) {
+                    synced = sync.syncNow()
+                    if (synced == false) {
+                        // 401 会把登录态顺手清掉，这时候说「网络不通」是骗人
+                        syncError = if (sync.signedIn) {
+                            sync.ui.value.error
+                        } else {
+                            "登录过期了，重新登录一次"
+                        }
+                    }
+                }
+                if (stocks.isNotEmpty()) {
+                    refreshQuotes(silent = true)
+                    ensureDaily(stocks, force = true)
+                }
+                // 转圈至少停 450ms：一闪而过比不刷新还让人心里没底
+                val gap = 450 - (System.currentTimeMillis() - started)
+                if (gap > 0) delay(gap)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (sync.signedIn) {
+                    synced = false
+                    syncError = error.message ?: error::class.java.simpleName
+                }
+            } finally {
+                // 一定要复位：漏了这一次，后面每次下拉都会被这行挡住
+                _refreshing.value = false
             }
-            // 转圈至少停 450ms：一闪而过比不刷新还让人心里没底
-            val gap = 450 - (System.currentTimeMillis() - started)
-            if (gap > 0) delay(gap)
-            _refreshing.value = false
-            onDone(if (parts.isEmpty()) "已经是最新的" else parts.joinToString(" · "))
+            onDone(RefreshNote.of(synced, syncError, stocks.size))
         }
     }
 

@@ -71,6 +71,12 @@ jobs:
           keyPassword=${KEY_PASSWORD}
           EOF
 
+      # 出包之前先过一遍单测和压测：坏掉的版本不值得发出去
+      - name: 单元测试与账本压测
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest --console=plain
+
       - name: 编译
         run: |
           chmod +x gradlew

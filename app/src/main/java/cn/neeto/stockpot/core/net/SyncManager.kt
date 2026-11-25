@@ -5,6 +5,7 @@ import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.settings.Account
 import cn.neeto.stockpot.core.settings.AuthStore
 import cn.neeto.stockpot.core.settings.SettingsStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -15,7 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 
 /** 登录一次可能要多走一步：开着两步验证的账号，密码对了还得再输一次码。 */
@@ -65,8 +66,16 @@ class SyncManager(
     val ui: StateFlow<SyncUi> = _ui.asStateFlow()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val mutex = Mutex()
     private var pushJob: Job? = null
+
+    /**
+     * 一轮同步只跑一份，后来的人等它的结果。
+     *
+     * 升级完第一次打开应用时最挤：bootstrap、回到前台的补偿同步、
+     * 用户的下拉刷新几乎同时到达。以前抢不到锁就直接回 false，
+     * 界面于是报「云端这次没对上」。
+     */
+    private val round = SingleFlight<Boolean>()
 
     /**
      * 本机改动的计数器。同步开始时记一份，结束时对一下：
@@ -89,13 +98,15 @@ class SyncManager(
 
     suspend fun bootstrap() {
         if (!signedIn) return
-        state.bind(auth.account.id)
-        _ui.update { it.copy(signedIn = true, account = auth.account, lastSync = auth.lastSync) }
         try {
+            state.bind(auth.account.id)
+            _ui.update { it.copy(signedIn = true, account = auth.account, lastSync = auth.lastSync) }
             val me = api.me(settings.serverUrl, auth.token)
             auth.updateAccount(me.user.toAccount())
             _ui.update { it.copy(account = auth.account) }
             syncNow()
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             // 令牌过期：清掉登录态，回到「本地模式」，别拿一个永远失败的凭据反复试
             if (error is ApiException && error.status == 401) {
@@ -185,43 +196,64 @@ class SyncManager(
         adopt(api.disableTwoFactor(settings.serverUrl, auth.token, password).user)
     }
 
-    /** 立刻同步一次。正在同步时返回 false，不排队。 */
+    /**
+     * 立刻同步一次。
+     *
+     * 已经有一轮在跑时不排队再来一轮，而是等那一轮——返回的就是它真实的结果。
+     * 这样「正在同步」不会被当成「同步失败」，下拉刷新的文案也就不会撒谎。
+     */
     suspend fun syncNow(): Boolean {
         if (!signedIn) return false
-        if (!mutex.tryLock()) return false
-        try {
-            _ui.update { it.copy(status = Status.SYNCING, error = null) }
-            val stamp = localChanges
-            var doc = api.pull(settings.serverUrl, auth.token)
-            var round = 0
-            while (true) {
-                val merged = mergeWith(doc)
-                if (merged != store.data.value) {
-                    store.replaceAll(merged, fromRemote = true)
-                }
-                val payload = LedgerPush(
-                    baseRev = doc.rev,
-                    ledger = store.json.encodeToJsonElement(Ledger.serializer(), merged) as JsonObject,
-                    deleted = state.deleted(),
-                )
-                when (val result = api.push(settings.serverUrl, auth.token, payload)) {
-                    is PushResult.Ok -> {
-                        settle(result.doc, stamp)
-                        return true
-                    }
-                    is PushResult.Conflict -> {
-                        // 别的设备先写过：拿回云端那份，合完再推。给它两次机会，够了。
-                        if (++round > 2) throw ApiException(409, "云端刚被别的设备改过，稍后再试")
-                        doc = result.doc
-                    }
-                }
-            }
+        return try {
+            round.run { runRound() }
+        } catch (error: CancellationException) {
+            // 页面没了/用户退出，取消照常往外抛，别把 CoroutineScope 的取消吞掉
+            throw error
+        } catch (error: SingleFlight.Abandoned) {
+            // 领跑的那一轮被取消了：这一轮确实没完成，但不必弹错误文案
+            false
         } catch (error: Exception) {
             failed(error)
-            return false
-        } finally {
-            mutex.unlock()
+            false
         }
+    }
+
+    /**
+     * 真正干活的那一轮：拉下来 → 合并 → 推上去，撞车了就再来一次。
+     *
+     * 整轮都放到 IO 线程：合并和「整份账本变成 JSON」是纯 CPU 活，五万条账的时候
+     * 加起来一百毫秒上下。下拉刷新是从界面的 viewModelScope 里调的，不切线程
+     * 就会卡在主线程上——转圈动画一顿一顿，正是「刷新要等很久」的来源。
+     */
+    private suspend fun runRound(): Boolean = withContext<Boolean>(Dispatchers.IO) {
+        _ui.update { it.copy(status = Status.SYNCING, error = null) }
+        val stamp = localChanges
+        var doc = api.pull(settings.serverUrl, auth.token)
+        var attempt = 0
+        var synced = false
+        while (!synced) {
+            val merged = mergeWith(doc)
+            if (merged != store.data.value) {
+                store.replaceAll(merged, fromRemote = true)
+            }
+            val payload = LedgerPush(
+                baseRev = doc.rev,
+                ledger = store.json.encodeToJsonElement(Ledger.serializer(), merged) as JsonObject,
+                deleted = state.deleted(),
+            )
+            when (val result = api.push(settings.serverUrl, auth.token, payload)) {
+                is PushResult.Ok -> {
+                    settle(result.doc, stamp)
+                    synced = true
+                }
+                is PushResult.Conflict -> {
+                    // 别的设备先写过：拿回云端那份，合完再推。给它两次机会，够了。
+                    if (++attempt > 2) throw ApiException(409, "云端刚被别的设备改过，稍后再试")
+                    doc = result.doc
+                }
+            }
+        }
+        true
     }
 
     /**
