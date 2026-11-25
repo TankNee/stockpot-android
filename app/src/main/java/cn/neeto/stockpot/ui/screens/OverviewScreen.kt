@@ -44,6 +44,7 @@ import cn.neeto.stockpot.core.data.CategoryTotal
 import cn.neeto.stockpot.core.data.DayTotal
 import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.data.LedgerMath
+import cn.neeto.stockpot.core.data.LedgerPhase
 import cn.neeto.stockpot.core.data.MonthSummary
 import cn.neeto.stockpot.core.data.YearMonthTotal
 import cn.neeto.stockpot.core.model.Entry
@@ -59,6 +60,7 @@ import cn.neeto.stockpot.ui.components.Donut
 import cn.neeto.stockpot.ui.components.EmptyState
 import cn.neeto.stockpot.ui.components.EntryRow
 import cn.neeto.stockpot.ui.components.Hairline
+import cn.neeto.stockpot.ui.components.LedgerLoading
 import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.MonthCalendar
 import cn.neeto.stockpot.ui.components.MoneyText
@@ -81,6 +83,8 @@ private data class ProjectPeek(val id: String, val name: String, val expense: Lo
 @Composable
 fun OverviewScreen(
     ledger: Ledger,
+    /** 还在读库/等第一轮同步时别摆空状态，见 [LedgerPhase] */
+    phase: LedgerPhase,
     onOpenEntry: (Entry) -> Unit,
     onLongPressEntry: (Entry) -> Unit,
     onOpenDay: (String) -> Unit,
@@ -113,22 +117,27 @@ fun OverviewScreen(
     if (entries.isEmpty()) {
         Column(Modifier.fillMaxWidth()) {
             MonthStepper(month, ::shift, Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
-            EmptyState(
-                title = "账本还是空的",
-                body = "记一笔试试，或者直接把微信、支付宝的账单导进来。所有数据只存在这台手机上。",
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        PrimaryButton("记一笔", onAddEntry)
-                        GhostButton("导入账单", onOpenImport)
+            if (phase == LedgerPhase.LOADING) {
+                // 还没读完库，或者刚登录正在拉云端那份：这会儿的空不作数
+                LedgerLoading(Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
+            } else {
+                EmptyState(
+                    title = "账本还是空的",
+                    body = "记一笔试试，或者直接把微信、支付宝的账单导进来。所有数据只存在这台手机上。",
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            PrimaryButton("记一笔", onAddEntry)
+                            GhostButton("导入账单", onOpenImport)
+                        }
+                        Spacer(Modifier.height(14.dp))
+                        PotPillButton(
+                            text = "先看看示例账本",
+                            icon = Icons.Outlined.AutoAwesome,
+                            tone = PillTone.Ghost,
+                            onClick = onLoadDemo,
+                        )
                     }
-                    Spacer(Modifier.height(14.dp))
-                    PotPillButton(
-                        text = "先看看示例账本",
-                        icon = Icons.Outlined.AutoAwesome,
-                        tone = PillTone.Ghost,
-                        onClick = onLoadDemo,
-                    )
                 }
             }
         }

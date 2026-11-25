@@ -9,6 +9,8 @@ import cn.neeto.stockpot.PotApp
 import cn.neeto.stockpot.core.data.EntryInput
 import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.data.LedgerOps
+import cn.neeto.stockpot.core.data.LedgerPhase
+import cn.neeto.stockpot.core.data.ledgerPhase
 import cn.neeto.stockpot.core.importer.BillParser
 import cn.neeto.stockpot.core.importer.ImportEngine
 import cn.neeto.stockpot.core.importer.ImportOutcome
@@ -40,7 +42,10 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -68,6 +73,21 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 登录状态与同步进度；没登录时 signedIn 为 false，UI 就当它不存在 */
     val cloud: StateFlow<SyncManager.SyncUi> = sync.ui
+
+    /**
+     * 页面现在该显示什么：还在读库 / 真的空 / 有数据。
+     *
+     * 判据都在 [ledgerPhase] 里，这里只负责把三个来源拼起来。初始值给 LOADING：
+     * 第一帧永远还没读完库，先按「不知道」处理，省得闪一下空状态。
+     */
+    val phase: StateFlow<LedgerPhase> = combine(store.ready, store.data, cloud) { ready, ledger, ui ->
+        ledgerPhase(
+            ready = ready,
+            entries = ledger.entries.size,
+            signedIn = ui.signedIn,
+            syncing = ui.status == SyncManager.Status.SYNCING,
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, LedgerPhase.LOADING)
 
     val serverUrl: String get() = settings.state.value.serverUrl
 

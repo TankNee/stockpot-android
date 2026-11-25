@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.neeto.stockpot.core.data.EntryFilter
 import cn.neeto.stockpot.core.data.Fmt
+import cn.neeto.stockpot.core.data.LedgerPhase
 import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
@@ -76,6 +77,7 @@ import cn.neeto.stockpot.ui.components.Chip
 import cn.neeto.stockpot.ui.components.DayHeader
 import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.EmptyState
+import cn.neeto.stockpot.ui.components.LedgerLoading
 import cn.neeto.stockpot.ui.components.EntryRow
 import cn.neeto.stockpot.ui.components.GhostButton
 import cn.neeto.stockpot.ui.components.MonthStepper
@@ -99,6 +101,8 @@ import java.time.LocalDate
 @Composable
 fun EntriesScreen(
     ledger: Ledger,
+    /** 还在读库/等第一轮同步时别摆空状态，见 [LedgerPhase] */
+    phase: LedgerPhase,
     month: String,
     dayFilter: String?,
     onMonth: (String) -> Unit,
@@ -197,19 +201,24 @@ fun EntriesScreen(
         Spacer(Modifier.height(8.dp))
 
         if (entries.isEmpty()) {
-            EmptyState(
-                title = when {
-                    query.isNotBlank() -> "没有匹配的记录"
-                    !filter.isEmpty -> "这些条件下一笔都没有"
-                    else -> "这个月还没有流水"
-                },
-                body = when {
-                    query.isNotBlank() -> "换个关键词试试，金额也能搜，像 25 或 25.50 这样写。"
-                    !filter.isEmpty -> "把条件放宽一点，或者点上面的标签撤掉一个。"
-                    else -> "导入账单，或者点右下角记一笔。"
-                },
-            ) {
-                GhostButton("导入账单", onOpenImport)
+            if (phase == LedgerPhase.LOADING) {
+                // 库还没读完（或者刚登录在等云端那份），这时候说「这个月还没有流水」是瞎说
+                LedgerLoading(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            } else {
+                EmptyState(
+                    title = when {
+                        query.isNotBlank() -> "没有匹配的记录"
+                        !filter.isEmpty -> "这些条件下一笔都没有"
+                        else -> "这个月还没有流水"
+                    },
+                    body = when {
+                        query.isNotBlank() -> "换个关键词试试，金额也能搜，像 25 或 25.50 这样写。"
+                        !filter.isEmpty -> "把条件放宽一点，或者点上面的标签撤掉一个。"
+                        else -> "导入账单，或者点右下角记一笔。"
+                    },
+                ) {
+                    GhostButton("导入账单", onOpenImport)
+                }
             }
             return@Column
         }

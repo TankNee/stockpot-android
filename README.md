@@ -252,6 +252,11 @@ App 这边不经过应用商店，也不需要登录：
 然后把原文件改名成 `ledger.imported.json` 留档——不删，迁移出岔子还能捞回来。
 导出走的仍是 JSON：`ledger.json` 是两端交换用的格式，库里存的是表，不是那份文本。
 
+读库放在 IO 线程（几万笔要几十上百毫秒，压在 `Application.onCreate` 里会堵住第一帧），
+所以界面分三态：**还没读完 / 真的空 / 有数据**（`core/data/LedgerPhase.kt`）。
+「账本还是空的，记一笔试试」只在读完库、并且登录用户也确认对完账之后才出现——
+以前冷启动那几十毫秒里账本还是空的，界面就已经把这句话摆出来了，看着像账丢了。
+
 ## 图标
 
 ![图标](docs/icons.png)
@@ -311,7 +316,7 @@ app/src/main/java/cn/neeto/stockpot/
   res/font/barlow_*.ttf     金额用的数字字体（OFL，见 docs/Barlow-OFL.txt）
   ui/components/            卡片、分段控件、日历、环形图、流水行、左右滑翻月、下拉刷新、编辑页四种过场
   ui/screens/               总览 / 流水 / 资产 / 设置 / 账号 / 分类管理 / 关键词规则 / 项目列表与详情 / 导入页 / 记一笔
-app/src/test/java/…         126 个单元测试 + 账本压测：解析、去重、退款、汇总、分类改名、JSON 兼容、日期换算、金额格式、筛选、标题交换、股票搜索、同步协议与并发、安装包下载校验、1k/20k/50k 条账本的耗时（压测单独一条任务，见下）
+app/src/test/java/…         131 个单元测试 + 账本压测：解析、去重、退款、汇总、分类改名、JSON 兼容、日期换算、金额格式、筛选、标题交换、股票搜索、同步协议与并发、安装包下载校验、冷启动该不该说「账本还是空的」、1k/20k/50k 条账本的耗时（压测单独一条任务，见下）
 ```
 
 ## 构建
@@ -326,7 +331,7 @@ app/src/test/java/…         126 个单元测试 + 账本压测：解析、去�
 ### 测试、压测、覆盖率
 
 ```bash
-./gradlew :app:testDebugUnitTest                  # 126 条单测
+./gradlew :app:testDebugUnitTest                  # 131 条单测
 ./gradlew :app:perfTest                           # 45 个压测场景
 ./gradlew :app:perfTest -Dperf.budget.scale=1.5   # 换了台慢机器，预算临时放宽
 ./gradlew :app:coverageReport -PcoverageHtml=true # 覆盖率（XML 默认有，HTML 可选）

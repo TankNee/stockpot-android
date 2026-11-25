@@ -151,6 +151,15 @@ object WidgetStore {
 
     fun snapshot(context: Context): WidgetSnapshot {
         val app = context.applicationContext as? PotApp ?: return WidgetSnapshot.empty
+        // 进程是被这张卡片拉起来的：账本还在后台读库，这时候读到的空不是真的空。
+        // 等一小会儿（读 5 万笔也就一两百毫秒），别把「0.00」画到桌面上。
+        if (!app.store.ready.value) {
+            runCatching {
+                kotlinx.coroutines.runBlocking {
+                    kotlinx.coroutines.withTimeoutOrNull(2_000) { app.store.awaitReady() }
+                }
+            }
+        }
         val ledger = runCatching { app.store.data.value }.getOrNull() ?: return WidgetSnapshot.empty
         return WidgetSnapshot.of(ledger)
     }

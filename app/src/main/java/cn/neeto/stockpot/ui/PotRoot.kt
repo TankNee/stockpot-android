@@ -225,6 +225,8 @@ fun PotRoot(
 ) {
     val colors = LocalPotColors.current
     val ledger by vm.ledger.collectAsStateWithLifecycle()
+    // 还在读库 / 正在等第一轮云端对账：这时候的「空」不作数
+    val phase by vm.phase.collectAsStateWithLifecycle()
     val prefs by vm.prefs.collectAsStateWithLifecycle()
     val quotes by vm.quotes.collectAsStateWithLifecycle()
     val quoteBusy by vm.quoteBusy.collectAsStateWithLifecycle()
@@ -553,6 +555,7 @@ fun PotRoot(
                                     when {
                                     current == "overview" -> OverviewScreen(
                                         ledger = ledger,
+                                        phase = phase,
                                         onOpenEntry = { openEditor(it, it.date) },
                                         onLongPressEntry = { pendingDelete = it },
                                         onOpenDay = { date ->
@@ -585,6 +588,7 @@ fun PotRoot(
 
                                     current == "entries" -> EntriesScreen(
                                         ledger = ledger,
+                                        phase = phase,
                                         month = entriesMonth,
                                         dayFilter = entriesDate,
                                         onMonth = { entriesMonth = it },
@@ -598,6 +602,7 @@ fun PotRoot(
 
                                     current == "assets" -> AssetsScreen(
                                         ledger = ledger,
+                                        phase = phase,
                                         stockValue = stockTotals.marketValue,
                                         stockPnl = stockTotals.pnl,
                                         stockAccountCount = ledger.stockAccounts.size,

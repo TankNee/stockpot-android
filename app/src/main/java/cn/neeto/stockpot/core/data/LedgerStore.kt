@@ -1,6 +1,7 @@
 package cn.neeto.stockpot.core.data
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.emptyLedger
@@ -13,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -49,14 +51,34 @@ class LedgerStore(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val saveMutex = Mutex()
 
-    private val _data = MutableStateFlow(loadInitial())
+    private val _data = MutableStateFlow(emptyLedger())
     val data: StateFlow<Ledger> = _data.asStateFlow()
+
+    private val _ready = MutableStateFlow(false)
+
+    /**
+     * 第一次读库读完了没有。
+     *
+     * 界面上的「账本还是空的」只能在这个值为 true、并且真的没有账目时出现：
+     * 读库之前那个空是「还不知道」，不是「没有」。读 5 万笔要几十上百毫秒，
+     * 冷启动的第一帧必定早于它——以前就是把那一帧当成了真没数据。
+     */
+    val ready: StateFlow<Boolean> = _ready.asStateFlow()
 
     private var saveJob: Job? = null
 
+    /** 读库期间进来的改动（用户刚好记了一笔、或同步先跑完了），读完再套上去。 */
+    private val pending = mutableListOf<(Ledger) -> Ledger>()
+
+    /** 护住 [pending]、[isReady] 和 `_data` 的一次性替换，读写都在这一把锁里。 */
+    private val lock = Any()
+
+    @Volatile
+    private var isReady = false
+
     /** 数据库里最后写进去的那一版，增量写靠它算出「哪些行变了」。 */
     @Volatile
-    private var persisted: Ledger = _data.value
+    private var persisted: Ledger = emptyLedger()
 
     /**
      * 本机改动的回调：把「改之前」和「改之后」两份都交出去，
@@ -69,18 +91,46 @@ class LedgerStore(context: Context) {
     val path: String get() = db.readableDatabase.path
 
     init {
-        // 全新安装：库是空的，先把默认分类和规则写进去。
+        // 读库挪到 IO 线程：几万笔账在 Application.onCreate 里同步读，会把这个
+        // 冷启动都堵住（主线程被占着，第一帧反而出不来）。谁要用账本，先看 [ready]。
+        scope.launch { hydrate() }
+    }
+
+    /** 读库完成前先等着。同步要用——不然它可能拿一份还没读出来的空账本去合并。 */
+    suspend fun awaitReady() {
+        ready.first { it }
+    }
+
+    private suspend fun hydrate() {
+        val started = SystemClock.elapsedRealtime()
+        val loaded = runCatching { loadInitial() }
+            .onFailure { Log.e(TAG, "打开账本数据库失败", it) }
+            .getOrElse { emptyLedger() }
+
+        // 全新安装：库是空的，先把默认分类和规则写进去，下次启动就不用再写一遍。
         // 从老 JSON 迁上来的那份在 loadInitial 里已经落过库，这里不会重复。
         if (runCatching { db.isEmpty() }.getOrDefault(false)) {
-            scope.launch {
-                saveMutex.withLock {
-                    runCatching {
-                        db.writeAll(_data.value)
-                        persisted = _data.value
-                    }.onFailure { Log.e(TAG, "初始化账本数据库失败", it) }
-                }
+            saveMutex.withLock {
+                runCatching { db.writeAll(loaded) }
+                    .onFailure { Log.e(TAG, "初始化账本数据库失败", it) }
             }
         }
+
+        val queued = synchronized(lock) {
+            var base = loaded
+            for (change in pending) base = change(base)
+            val had = pending.isNotEmpty()
+            pending.clear()
+            persisted = loaded
+            isReady = true
+            _data.value = base
+            _ready.value = true
+            had
+        }
+        val cost = SystemClock.elapsedRealtime() - started
+        Log.i(TAG, "读到 ${loaded.entries.size} 笔账，用时 ${cost}ms" + if (queued) "（期间有改动，已套上）" else "")
+        // 读库期间进来的改动还没落盘，补一次
+        if (queued) scheduleSave()
     }
 
     private fun loadInitial(): Ledger {
@@ -113,6 +163,17 @@ class LedgerStore(context: Context) {
 
     /** 所有修改都走这里：先更新内存快照，再防抖落盘。 */
     fun update(block: (Ledger) -> Ledger) {
+        synchronized(lock) {
+            if (!isReady) {
+                // 库还没读出来：先记下这么改，读完套到读出来的那份上。
+                // 直接拿空账本算的话，这一笔会把库里原有的账全「覆盖」掉。
+                pending.add(block)
+                val before = _data.value
+                val next = block(before)
+                if (next !== before) _data.value = next
+                return
+            }
+        }
         val before = _data.value
         val next = block(before)
         if (next === before) return
@@ -126,8 +187,15 @@ class LedgerStore(context: Context) {
      * [fromRemote] 是云端写回来的那份——它不该再被当成"本地改动"推上去。
      */
     fun replaceAll(ledger: Ledger, fromRemote: Boolean = false) {
-        val before = _data.value
         val next = ledger.normalized()
+        synchronized(lock) {
+            if (!isReady) {
+                pending.add { next }
+                _data.value = next
+                return
+            }
+        }
+        val before = _data.value
         if (next == before) return
         _data.value = next
         scheduleSave()
@@ -143,11 +211,13 @@ class LedgerStore(context: Context) {
     }
 
     private suspend fun persist(data: Ledger) = saveMutex.withLock {
+        // 库还没读出来就别写：手上这份是空的，一写就把库里的账全删了
+        if (!isReady) return@withLock
         runCatching {
             val previous = persisted
             db.writeDiff(previous, data)
             persisted = data
-        }.onFailure { Log.e(TAG, "保存账本失败", it) }
+        }.onFailure { Log.e(TAG, "保存账本失败（${data.entries.size} 笔）", it) }
     }
 
     fun flushAsync() {

@@ -40,8 +40,8 @@ android {
         applicationId = "cn.neeto.stockpot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 47
-        versionName = "0.19.3"
+        versionCode = 48
+        versionName = "0.19.4"
         vectorDrawables.useSupportLibrary = true
         buildConfigField("String", "DEFAULT_SERVER", "\"$defaultServer\"")
     }

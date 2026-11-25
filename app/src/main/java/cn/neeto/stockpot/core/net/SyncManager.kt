@@ -103,7 +103,11 @@ class SyncManager(
         if (!signedIn) return
         try {
             state.bind(auth.account.id)
-            _ui.update { it.copy(signedIn = true, account = auth.account, lastSync = auth.lastSync) }
+            // 一上来就挂「对账中」：界面靠这个状态判断「本机空是不是还没拉下来」。
+            // 等 api.me 回来再挂的话，中间那两百毫秒会闪一下「账本还是空的」。
+            _ui.update {
+                it.copy(signedIn = true, account = auth.account, lastSync = auth.lastSync, status = Status.SYNCING)
+            }
             val me = api.me(settings.serverUrl, auth.token)
             auth.updateAccount(me.user.toAccount())
             _ui.update { it.copy(account = auth.account) }
@@ -229,7 +233,12 @@ class SyncManager(
      * 就会卡在主线程上——转圈动画一顿一顿，正是「刷新要等很久」的来源。
      */
     private suspend fun runRound(): Boolean = withContext<Boolean>(Dispatchers.IO) {
+        // 先把「正在对账」摆出来：界面上只要这个状态在、本机又是空的，就继续显示骨架，
+        // 不会先闪一下「账本还是空的」再冒出数据。
         _ui.update { it.copy(status = Status.SYNCING, error = null) }
+        // 本机账本还在读库（冷启动那几十毫秒）就先等它读完：不然这一轮会拿一份
+        // 空账本去合并，本地那些还没读出来的账会被当成「云端没有」推上去。
+        store.awaitReady()
         val stamp = localChanges
         var doc = api.pull(settings.serverUrl, auth.token)
         var attempt = 0

@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.neeto.stockpot.core.data.Fmt
+import cn.neeto.stockpot.core.data.LedgerPhase
 import cn.neeto.stockpot.core.data.LedgerMath
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Wallet
@@ -40,6 +41,7 @@ import cn.neeto.stockpot.core.model.signedBalance
 import androidx.compose.material.icons.outlined.Add
 import cn.neeto.stockpot.ui.components.PotPillButton
 import cn.neeto.stockpot.ui.components.EmptyState
+import cn.neeto.stockpot.ui.components.LedgerLoading
 import cn.neeto.stockpot.ui.components.Hairline
 import cn.neeto.stockpot.ui.components.GhostButton
 import cn.neeto.stockpot.ui.components.PrimaryButton
@@ -56,6 +58,8 @@ private data class KindTotal(val kind: String, val label: String, val total: Lon
 @Composable
 fun AssetsScreen(
     ledger: Ledger,
+    /** 还在读库/等第一轮同步时别摆空状态，见 [LedgerPhase] */
+    phase: LedgerPhase,
     stockValue: Long,
     stockPnl: Long,
     stockAccountCount: Int,
@@ -98,7 +102,7 @@ fun AssetsScreen(
         }.filter { it.second.isNotEmpty() }
     }
 
-    if (wallets.isEmpty() && stockAccountCount == 0) {
+    if (wallets.isEmpty() && stockAccountCount == 0 && phase != LedgerPhase.LOADING) {
         EmptyState(
             title = "还没有账户",
             body = "添加银行卡、微信零钱或信用卡，这里就能看到总资产和净资产。余额自己维护，账本只记录钱的流动。",
@@ -108,6 +112,9 @@ fun AssetsScreen(
                 GhostButton("股票账户", onOpenStocks)
             }
         }
+    } else if (wallets.isEmpty() && stockAccountCount == 0) {
+        // 还没读出来：摆骨架，别说「还没有账户」
+        LedgerLoading(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
     } else {
         LazyColumn(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 108.dp),
