@@ -1,0 +1,10 @@
+# CI 里跑的东西一律 LF：Windows 上 core.autocrlf=true 会把脚本存成 CRLF，
+# 到了 Linux runner 上 bash 会因为 \r 报 "bad interpreter"。
+*.sh text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+gradlew text eol=lf
+*.kt text eol=lf
+*.kts text eol=lf
+*.md text eol=lf
