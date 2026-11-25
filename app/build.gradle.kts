@@ -141,7 +141,8 @@ tasks.withType<Test>().configureEach {
     maxHeapSize = "2g"
     // 压测报告直接落到 build/reports/perf，CI 读它贴进 job summary
     systemProperty("perf.report.dir", layout.buildDirectory.dir("reports/perf").get().asFile.absolutePath)
-    extensions.configure(org.gradle.testing.jacoco.plugins.JacocoTaskExtension::class) {
+    // perfTest 不在 jacoco 的覆盖范围里，拿不到扩展就不动它
+    extensions.findByType(org.gradle.testing.jacoco.plugins.JacocoTaskExtension::class.java)?.apply {
         // JaCoCo 的 agent 认不出 JDK 内部的一些类，不排除会刷警告
         isIncludeNoLocationClasses = true
         excludes = listOf("jdk.internal.*")
@@ -150,6 +151,28 @@ tasks.withType<Test>().configureEach {
         events("failed")
         showStandardStreams = true
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+    // 压测单独一条任务：单测不该被性能数字绑架——压测超标不能让覆盖率算不出来，
+    // 反过来改一行 UI 也不该等 45 个场景跑完。
+    if (name == "perfTest") {
+        filter { includeTestsMatching("cn.neeto.stockpot.perf.*") }
+        maxParallelForks = 1
+    } else {
+        filter { excludeTestsMatching("cn.neeto.stockpot.perf.*") }
+    }
+}
+
+// 压测任务复用单测的编译产物和 classpath，只是换一套过滤条件。
+// 依赖直接从 testDebugUnitTest 上抄一份（去掉它自己）：AGP 改任务名的时候
+// 这里不用跟着改，也不会因为「多跑一遍单测」白等两分钟。
+afterEvaluate {
+    val unitTest = tasks.named<Test>("testDebugUnitTest")
+    tasks.register<Test>("perfTest") {
+        group = "verification"
+        description = "账单量级压测：1k / 20k / 50k 条下的筛选、汇总、合并与同步编解码"
+        dependsOn(unitTest.get().taskDependencies.getDependencies(null) - unitTest.get())
+        testClassesDirs = unitTest.get().testClassesDirs
+        classpath = unitTest.get().classpath
     }
 }
 

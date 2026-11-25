@@ -46,13 +46,14 @@ def main():
             body = handle.read().strip().splitlines()
         lines.append("## 账本压测")
         lines.append("")
-        # 报告自带一级标题和说明，去掉前四行直接贴表格
-        lines.extend(body[4:])
+        # 报告自带一级标题，去掉它整段贴进来：机器和量级两行也得留着，
+        # 不然看数字的人不知道这是台什么机器跑出来的
+        lines.extend(body[1:])
         lines.append("")
     else:
         lines.append("## 账本压测")
         lines.append("")
-        lines.append("这次没跑出压测报告，看单元测试那一步的日志。")
+        lines.append("这次没跑出压测报告，看压测那一步的日志。")
         lines.append("")
 
     lines.append("## 覆盖率")

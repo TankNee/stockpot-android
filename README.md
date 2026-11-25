@@ -311,7 +311,7 @@ app/src/main/java/cn/neeto/stockpot/
   res/font/barlow_*.ttf     金额用的数字字体（OFL，见 docs/Barlow-OFL.txt）
   ui/components/            卡片、分段控件、日历、环形图、流水行、左右滑翻月、下拉刷新、编辑页四种过场
   ui/screens/               总览 / 流水 / 资产 / 设置 / 账号 / 分类管理 / 关键词规则 / 项目列表与详情 / 导入页 / 记一笔
-app/src/test/java/…         127 个单元测试 + 账本压测：解析、去重、退款、汇总、分类改名、JSON 兼容、日期换算、金额格式、筛选、标题交换、股票搜索、同步协议与并发、安装包下载校验、1k/20k/50k 条账本的耗时
+app/src/test/java/…         126 个单元测试 + 账本压测：解析、去重、退款、汇总、分类改名、JSON 兼容、日期换算、金额格式、筛选、标题交换、股票搜索、同步协议与并发、安装包下载校验、1k/20k/50k 条账本的耗时（压测单独一条任务，见下）
 ```
 
 ## 构建
@@ -319,32 +319,49 @@ app/src/test/java/…         127 个单元测试 + 账本压测：解析、去�
 ```bash
 ./gradlew :app:assembleRelease    # app/build/outputs/apk/release/app-release.apk（已签名、R8）
 ./gradlew :app:assembleDebug      # app/build/outputs/apk/debug/app-debug.apk（包名带 .debug）
-./gradlew :app:testDebugUnitTest  # 单元测试 + 账本压测
+./gradlew :app:testDebugUnitTest  # 单元测试
+./gradlew :app:perfTest           # 账本压测（另一条任务，免得性能数字挡住单测）
 ```
 
 ### 测试、压测、覆盖率
 
 ```bash
-./gradlew :app:testDebugUnitTest                                   # 127 条，含压测
-./gradlew :app:testDebugUnitTest --tests "cn.neeto.stockpot.perf.*" # 只跑压测
-./gradlew :app:coverageReport -PcoverageHtml=true                   # 覆盖率（XML 默认有，HTML 可选）
+./gradlew :app:testDebugUnitTest                  # 126 条单测
+./gradlew :app:perfTest                           # 45 个压测场景
+./gradlew :app:perfTest -Dperf.budget.scale=1.5   # 换了台慢机器，预算临时放宽
+./gradlew :app:coverageReport -PcoverageHtml=true # 覆盖率（XML 默认有，HTML 可选）
 ```
+
+压测是独立任务，不挂在 `testDebugUnitTest` 上：性能数字不该决定单测通不通过，
+反过来覆盖率也不该因为压测超标就算不出来。
 
 账本压测（`app/src/test/java/cn/neeto/stockpot/perf/`）拿三档合成账本 —— 1k（日常）、
 20k（重度）、50k（五年账单）—— 跑那些「每进一次页面都要算一遍」的纯逻辑：
 流水筛选与排序（当月 / 全量区间）、月度汇总、每日柱、年度柱、插入一笔、
-退款总览与候选、同步的合并 / 墓碑比对 / JSON 编解码。每档先预热再测三遍取中位数，
-**超预算就让测试失败**：把 O(n) 写成 O(n²) 的那种改动能当场拦住。
+退款总览与候选、同步的合并 / 墓碑比对 / JSON 编解码。
 
-本机（x86）50k 条的数字：筛选 2ms、汇总 2ms、插入 10ms、合并 21ms、
-一次同步的 JSON 编码 61ms、解码 64ms。手机 CPU 慢 2~3 倍，预算按这个留的余量。
-报告落在 `app/build/reports/perf/ledger-perf.md`（CI 里贴进 job summary）。
+两道闸各管一件事：
+
+- **预算**：本机中位数 × 6，且不低于档位下限（1k 按 1ms、20k 按 5ms、50k 按 10ms）。
+  拦「整体慢了一大截」；太小的数字不值得报警，否则天天跟红叉搏斗。
+- **线性度**：50k 相对 1k 的倍数不该超过 150（线性应得 50）。这条不看机器快慢，
+  把 O(n) 写成 O(n²) 时倍数是上千，一眼就能看出来。
+
+测量上做了三件事才让数字站得住：每个场景先热身（不然 20k 会替 50k 交 JIT 编译费，
+测出来比 50k 还慢）；太快的场景自动攒批跑（一批至少 5ms，否则几微秒的操作被
+计时器精度吃掉）；取 7 次的中位数而不是最好成绩。
+
+本机（16 核 x86）50k 条：筛当月 1.4ms、全量区间排序 14ms、月度汇总 0.8ms、
+插入一笔 10ms、合并 16ms、一次同步的 JSON 编码 92ms、解码 83ms。手机 CPU 慢 2~3 倍，
+预算就是按这个留的余量。报告落在 `app/build/reports/perf/ledger-perf.md`
+（CI 里连同线性度表一起贴进 job summary）。
 
 覆盖率分两个数看：**全仓**（含 Compose 界面，JVM 单测跑不到，所以低）和
 **核心逻辑**（`core/` 加刷新相关的那两个类）。故意不合成一个数——合起来只会互相误导。
 
-CI（`.github/workflows/ci.yml`）每次推送和 PR 跑这一整套：单测 + 覆盖率 + 压测，
-报告上传成 artifact；`release.yml` 出包前也会先过一遍单测，坏版本不发。
+CI（`.github/workflows/ci.yml`）每次推送和 PR 跑三件事，各自独立、互不牵连：
+单测、覆盖率、压测（都带 `if: always()`，前一条挂了后面照跑，报告都上传成 artifact）。
+`release.yml` 出包前只过单测——性能数字留在 CI 观察，不挡发版。
 
 `local.properties` 里的 `sdk.dir` 指向本机 Android SDK。
 

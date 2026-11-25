@@ -31,16 +31,22 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # 压测就在这一条里：跑的是同一批 JVM 单测，账单量级 1k / 20k / 50k，
-      # 超预算会直接让这条命令失败（LedgerPerfTest 里断言）
-      - name: 单元测试与账本压测
+      # 单测和压测分成两条命令，谁也不牵连谁：压测超标时覆盖率照样出得来，
+      # 覆盖率挂了也不影响看性能数字。三步都是 if: always()。
+      - name: 单元测试
         run: |
           chmod +x gradlew
           ./gradlew :app:testDebugUnitTest --console=plain
 
+      # -x testDebugUnitTest：jacoco 直接读上一步落盘的 .exec，不重跑一遍单测
       - name: 覆盖率
         if: always()
-        run: ./gradlew :app:coverageReport -PcoverageHtml=true --console=plain
+        run: ./gradlew :app:coverageReport -x testDebugUnitTest -PcoverageHtml=true --console=plain
+
+      # 超预算或耗时随账单量非线性增长，这一条会失败（LedgerPerfTest 里断言）
+      - name: 账单压测
+        if: always()
+        run: ./gradlew :app:perfTest --console=plain
 
       - name: 汇总到 job summary
         if: always()
@@ -75,6 +81,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ledger-perf
-          path: app/build/reports/perf
+          path: |
+            app/build/reports/perf
+            app/build/test-results/perfTest
           if-no-files-found: ignore
           retention-days: 30
