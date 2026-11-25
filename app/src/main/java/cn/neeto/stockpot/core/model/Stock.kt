@@ -16,7 +16,7 @@ data class Stock(
     val id: String,
     val code: String,
     val name: String = "",
-    /** a | hk | us */
+    /** a | hk | us | fund */
     val market: String = "a",
     val updatedAt: String = "",
 )
@@ -26,9 +26,17 @@ data class Stock(
 data class Holding(
     /** 成本价，万分之一元 */
     val costE4: Long = 0,
-    val shares: Long = 0,
+    /**
+     * 股数 / 份额。用 Double 是因为场外基金按份申赎，常见 1234.56 份；
+     * 桌面端一直是 f64，这里跟着对齐，跨端同步才不会把小数抹掉。
+     */
+    val shares: Double = 0.0,
 ) {
     val costYuan: Double get() = costE4 / 10000.0
+
+    /** 整数股就显示整数，基金的小数份额保留两位。 */
+    val sharesText: String
+        get() = if (shares % 1.0 == 0.0) shares.toLong().toString() else "%.2f".format(shares)
 }
 
 @Serializable
@@ -48,12 +56,18 @@ object Market {
     const val A = "a"
     const val HK = "hk"
     const val US = "us"
+    /** 场外开放式基金：6 位代码，按净值申赎，没有分时 */
+    const val FUND = "fund"
 
     fun label(market: String): String = when (market) {
         HK -> "港股"
         US -> "美股"
+        FUND -> "场外基金"
         else -> "A 股"
     }
+
+    /** 单位：股票是「股」，基金是「份」。 */
+    fun unit(market: String): String = if (market == FUND) "份" else "股"
 }
 
 /** 一根日 K。价格同样是万分之一元，画图时再按像素缩。 */

@@ -389,7 +389,7 @@ fun StockAccountScreen(
     busy: Boolean,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
-    onSaveHolding: (Stock, Long, Long) -> Unit,
+    onSaveHolding: (Stock, Long, Double) -> Unit,
     onRemoveHolding: (String) -> Unit,
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
@@ -508,7 +508,7 @@ fun StockAccountScreen(
                 item(key = "empty") {
                     PotCard {
                         Text(
-                            "这个账户还没有票。点「添加持仓」，输代码、成本价、股数就行。",
+                            "这个账户还没有标的。点「添加持仓」，输代码、成本价、股数，场外基金填份额。",
                             style = MaterialTheme.typography.bodySmall,
                             color = colors.ink3,
                             lineHeight = 20.sp,
@@ -543,7 +543,7 @@ fun StockAccountScreen(
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                "${line.stock.code} · ${Market.label(line.stock.market)} · ${line.holding.shares} 股",
+                                "${line.stock.code} · ${Market.label(line.stock.market)} · ${line.holding.sharesText} ${Market.unit(line.stock.market)}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = colors.ink3,
                             )
@@ -874,7 +874,7 @@ internal fun HoldingEditorSheet(
     existing: Pair<Stock, Holding>?,
     quotes: Map<String, Quote>,
     onDismiss: () -> Unit,
-    onSave: (Stock, Long, Long) -> Unit,
+    onSave: (Stock, Long, Double) -> Unit,
     onDelete: (String) -> Unit,
 ) {
     val colors = LocalPotColors.current
@@ -886,7 +886,7 @@ internal fun HoldingEditorSheet(
     var hits by remember { mutableStateOf<List<StockSearchHit>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
     var costText by remember { mutableStateOf(existing?.second?.let { StockCode.priceText(it.costE4) } ?: "") }
-    var sharesText by remember { mutableStateOf(existing?.second?.shares?.toString() ?: "") }
+    var sharesText by remember { mutableStateOf(existing?.second?.sharesText ?: "") }
 
     // 改字就重搜，停手 280ms 才发请求；已经选中某一条就不再搜，免得把自己选的那条冲掉。
     // 编辑已有持仓时输入框里就是原来那个代码，不必一打开就搜一遍。
@@ -914,7 +914,12 @@ internal fun HoldingEditorSheet(
     val market = picked?.market ?: StockCode.guessMarket(code)
     val stockId = picked?.id ?: StockCode.stockIdFor(code, market)
     val quote = quotes[stockId] ?: existing?.first?.let { quotes[it.id] }
-    val canSave = code.isNotBlank() && (sharesText.toLongOrNull() ?: 0L) > 0
+    // 场外基金按份，股票按股；份额可以有小数，判空要走 Double
+    val isFund = market == Market.FUND
+    val unit = Market.unit(market)
+    // 基金按份额而不是股，中文里「份数」读着别扭，直接用「份额」
+    val qtyLabel = if (isFund) "份额" else "股数"
+    val canSave = code.isNotBlank() && (sharesText.toDoubleOrNull() ?: 0.0) > 0
 
     PotSheet(onDismiss = onDismiss) {
       // 候选列表一出现、再加上软键盘，内容会顶出一屏，所以这条表单自己滚
@@ -926,7 +931,7 @@ internal fun HoldingEditorSheet(
         )
         Spacer(Modifier.height(2.dp))
         Text(
-            "$accountName · 成本价和股数自己维护，行情自动更新",
+            "$accountName · 成本价和${qtyLabel}自己维护，行情自动更新",
             style = MaterialTheme.typography.labelSmall,
             color = colors.ink3,
         )
@@ -935,7 +940,7 @@ internal fun HoldingEditorSheet(
         SheetField(
             label = "代码或名称",
             value = query,
-            placeholder = "600519 / 腾讯 / AAPL",
+            placeholder = "600519 / 易方达 / AAPL",
             onValueChange = { input ->
                 query = input
                 // 一改字，之前选中的那条就不作数了，重新搜
@@ -968,7 +973,8 @@ internal fun HoldingEditorSheet(
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            "市场：${Market.label(market)}" + (quote?.let { " · 现价 ${StockCode.priceText(it.priceE4)}" } ?: " · 暂未查到行情") +
+            "市场：${Market.label(market)}" +
+                (quote?.let { (if (isFund) " · 净值 " else " · 现价 ") + StockCode.priceText(it.priceE4) } ?: " · 暂未查到行情") +
                 if (code.isEmpty() && query.isNotBlank()) " · 从上面的候选里选一只" else "",
             style = MaterialTheme.typography.labelSmall,
             color = colors.ink3,
@@ -987,24 +993,25 @@ internal fun HoldingEditorSheet(
             SheetField(
                 label = "成本价",
                 value = costText,
-                placeholder = "每股成本",
+                placeholder = "每${unit}成本",
                 modifier = Modifier.weight(1f),
                 keyboardType = KeyboardType.Decimal,
                 onValueChange = { input -> costText = input.filter { it.isDigit() || it == '.' } },
             )
             SheetField(
-                label = "股数",
+                label = qtyLabel,
                 value = sharesText,
-                placeholder = "持有股数",
+                placeholder = "持有$qtyLabel",
                 modifier = Modifier.weight(1f),
-                keyboardType = KeyboardType.Number,
-                onValueChange = { input -> sharesText = input.filter { it.isDigit() } },
+                keyboardType = KeyboardType.Decimal,
+                // 基金份额带小数（1234.56 份），只留数字会把点吃掉
+                onValueChange = { input -> sharesText = input.filter { it.isDigit() || it == '.' } },
             )
         }
 
         Spacer(Modifier.height(10.dp))
         val cost = StockCode.parsePriceE4(costText) ?: existing?.second?.costE4 ?: 0L
-        val shares = sharesText.toLongOrNull() ?: 0L
+        val shares = sharesText.toDoubleOrNull() ?: 0.0
         val value = StockMath.valueCents(shares, quote?.priceE4?.takeIf { it > 0 } ?: cost)
         Text(
             "市值约 ${Fmt.yuan(value)}" + if (quote != null) " · 成本 ${Fmt.yuan(StockMath.valueCents(shares, cost))}" else " · 无行情时按成本算",

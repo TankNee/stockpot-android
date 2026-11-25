@@ -7,6 +7,8 @@ import cn.neeto.stockpot.core.model.Quote
 import cn.neeto.stockpot.core.model.Rates
 import cn.neeto.stockpot.core.model.Stock
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -50,7 +52,12 @@ object QuoteClient {
         if (stocks.isEmpty()) return@withContext emptyMap()
 
         val out = mutableMapOf<String, Quote>()
-        stocks.groupBy { it.market }.forEach { (_, list) ->
+        // 场外基金不在腾讯的行情接口里，走东财的净值接口
+        val funds = stocks.filter { it.market == Market.FUND }
+        if (funds.isNotEmpty()) out += fetchFunds(funds)
+
+        stocks.groupBy { it.market }.forEach { (market, list) ->
+            if (market == Market.FUND) return@forEach
             val symbols = list.mapNotNull { wireSymbol(it) }
             if (symbols.isEmpty()) return@forEach
             val body = runCatching {
@@ -80,10 +87,113 @@ object QuoteClient {
     suspend fun search(query: String, limit: Int = 8): List<StockSearchHit> = withContext(Dispatchers.IO) {
         val q = query.trim()
         if (q.isEmpty()) return@withContext emptyList()
-        runCatching {
-            val encoded = java.net.URLEncoder.encode(q, "UTF-8").replace("+", "%20")
-            parseSearch(get("https://smartbox.gtimg.cn/s3/?t=all&q=$encoded"))
-        }.getOrDefault(emptyList()).take(limit)
+        // 股票和场外基金是两个源，并发问，谁也不拖慢谁
+        val (stocks, funds) = coroutineScope {
+            val equities = async {
+                runCatching {
+                    val encoded = java.net.URLEncoder.encode(q, "UTF-8").replace("+", "%20")
+                    parseSearch(get("https://smartbox.gtimg.cn/s3/?t=all&q=$encoded"))
+                }.getOrDefault(emptyList())
+            }
+            val openEnded = async {
+                runCatching { searchFunds(q) }.getOrDefault(emptyList())
+            }
+            equities.await() to openEnded.await()
+        }
+        (stocks + funds).distinctBy { it.id }.take(limit)
+    }
+
+    /**
+     * 场外基金搜索：东财 `fundsuggest`，返回 `Datas[{CODE, NAME, FundBaseInfo}]`。
+     * 腾讯的 smartbox 只有场内品种，基金得单独问。
+     */
+    suspend fun searchFunds(query: String, limit: Int = 6): List<StockSearchHit> {
+        val encoded = java.net.URLEncoder.encode(query, "UTF-8").replace("+", "%20")
+        val body = get(
+            "https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?m=1&key=$encoded",
+            referer = "https://fund.eastmoney.com/",
+        )
+        return parseFundSearch(body, limit)
+    }
+
+    fun parseFundSearch(body: String, limit: Int = 6): List<StockSearchHit> {
+        val root = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
+            ?: return emptyList()
+        val rows = root["Datas"] as? JsonArray ?: return emptyList()
+        return rows.mapNotNull { row ->
+            val obj = row as? JsonObject ?: return@mapNotNull null
+            val code = (obj["CODE"] as? JsonPrimitive)?.contentOrNull?.trim() ?: return@mapNotNull null
+            val name = (obj["NAME"] as? JsonPrimitive)?.contentOrNull?.trim() ?: return@mapNotNull null
+            // 场外基金代码一定是 6 位数字，别把基金经理、基金公司也当标的
+            if (code.length != 6 || !code.all { it.isDigit() }) return@mapNotNull null
+            val type = ((obj["FundBaseInfo"] as? JsonObject)?.get("FTYPE") as? JsonPrimitive)
+                ?.contentOrNull?.takeIf { it.isNotBlank() } ?: "场外基金"
+            StockSearchHit(
+                id = "fund$code",
+                code = code,
+                name = name,
+                market = Market.FUND,
+                kind = type,
+            )
+        }.distinctBy { it.id }.take(limit)
+    }
+
+    /**
+     * 基金净值和盘中估值。东财移动端接口一次能带一批代码，
+     * `NAV` 是最近一个交易日净值，`GSZ` 只有盘中才有；
+     * 收盘后 GSZ 为空，用 `NAVCHGRT`（净值日涨跌%）反推昨净值，
+     * 否则今天涨了 1% 也会显示成 0。
+     */
+    private fun fetchFunds(funds: List<Stock>): Map<String, Quote> {
+        val out = mutableMapOf<String, Quote>()
+        funds.chunked(40).forEach { chunk ->
+            val codes = chunk.map { it.code }.joinToString(",")
+            val url = "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo" +
+                "?Fcodes=$codes&pageIndex=1&pageSize=${chunk.size}" +
+                "&plat=Android&appType=ttjj&product=EFund&Version=1&deviceid=1"
+            val body = runCatching { get(url, referer = "https://fund.eastmoney.com/") }
+                .getOrNull() ?: return@forEach
+            val parsed = parseFund(body)
+            chunk.forEach { stock ->
+                parsed["fund${stock.code}"]?.let { out[stock.id] = it.copy(id = stock.id) }
+            }
+        }
+        return out
+    }
+
+    fun parseFund(body: String): Map<String, Quote> {
+        val root = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
+            ?: return emptyMap()
+        val rows = root["Datas"] as? JsonArray ?: return emptyMap()
+        val out = mutableMapOf<String, Quote>()
+        rows.forEach { row ->
+            val obj = row as? JsonObject ?: return@forEach
+            val code = (obj["FCODE"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
+            val nav = (obj["NAV"] as? JsonPrimitive)?.contentOrNull
+                ?.toDoubleOrNull()?.takeIf { it > 0 } ?: return@forEach
+            val estimate = (obj["GSZ"] as? JsonPrimitive)?.contentOrNull
+                ?.toDoubleOrNull()?.takeIf { it > 0 }
+            val pct = (obj["NAVCHGRT"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
+            val price = estimate ?: nav
+            val prev = if (estimate != null) {
+                nav
+            } else if (pct != null && pct > -100.0) {
+                nav * 100.0 / (100.0 + pct)
+            } else {
+                nav
+            }
+            val time = (obj["GZTIME"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+                ?: (obj["PDATE"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+            out["fund$code"] = Quote(
+                id = "fund$code",
+                name = (obj["SHORTNAME"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
+                priceE4 = (price * 10_000).roundToLong(),
+                prevCloseE4 = (prev * 10_000).roundToLong(),
+                time = time,
+                source = "eastmoney-fund",
+            )
+        }
+        return out
     }
 
     fun parseSearch(body: String): List<StockSearchHit> {
@@ -189,6 +299,8 @@ object QuoteClient {
     private fun wireSymbol(stock: Stock): String? = when (stock.market) {
         Market.HK -> "r_" + stock.id
         Market.US -> "us" + stock.id.removePrefix("us").uppercase()
+        // 场外基金不走腾讯批量行情，净值另外拉
+        Market.FUND -> null
         else -> stock.id.ifEmpty { null }
     }
 

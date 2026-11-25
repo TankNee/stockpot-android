@@ -134,7 +134,7 @@ class LedgerDb(context: Context) : SQLiteOpenHelper(context, NAME, null, VERSION
                 account_id TEXT NOT NULL,
                 stock_id TEXT NOT NULL,
                 cost_e4 INTEGER NOT NULL,
-                shares INTEGER NOT NULL,
+                shares REAL NOT NULL,
                 PRIMARY KEY (account_id, stock_id)
             )
             """.trimIndent(),
@@ -143,11 +143,13 @@ class LedgerDb(context: Context) : SQLiteOpenHelper(context, NAME, null, VERSION
     }
 
     /**
-     * 目前只有第 1 版。以后加表加列在这里按版本补——不重建，
-     * 重建会把用户攒了一年的账目一起清掉。
+     * 目前是第 2 版：第 1 版 holdings.shares 声明成 INTEGER，
+     * 场外基金的份额是小数（1234.56 份），读的时候会被告成整数。
+     * SQLite 是动态类型，旧库那一列照样能存 REAL，不用 ALTER，
+     * 只把 `cursor.long` 换成 `getDouble` 就够。
      */
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // 第 1 版没有需要迁移的东西
+        // v1 -> v2 只改了 shares 的读取方式，旧数据不用搬
     }
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -291,7 +293,7 @@ class LedgerDb(context: Context) : SQLiteOpenHelper(context, NAME, null, VERSION
                     val account = cursor.text("account_id")
                     holdings.getOrPut(account) { mutableMapOf() }[cursor.text("stock_id")] = Holding(
                         costE4 = cursor.long("cost_e4"),
-                        shares = cursor.long("shares"),
+                        shares = cursor.double("shares"),
                     )
                 }
             }
@@ -629,6 +631,7 @@ class LedgerDb(context: Context) : SQLiteOpenHelper(context, NAME, null, VERSION
 
     private fun Cursor.text(column: String): String = getString(getColumnIndexOrThrow(column)).orEmpty()
     private fun Cursor.long(column: String): Long = getLong(getColumnIndexOrThrow(column))
+    private fun Cursor.double(column: String): Double = getDouble(getColumnIndexOrThrow(column))
     private fun Cursor.int(column: String): Int = getInt(getColumnIndexOrThrow(column))
     private fun Cursor.bool(column: String): Boolean = getInt(getColumnIndexOrThrow(column)) != 0
 
@@ -657,7 +660,7 @@ class LedgerDb(context: Context) : SQLiteOpenHelper(context, NAME, null, VERSION
     companion object {
         /** 应用私有目录下的文件，`getDatabasePath` 拼出完整路径。 */
         const val NAME = "ledger.db"
-        const val VERSION = 1
+        const val VERSION = 2
 
         private val TABLES = listOf(
             "entries",

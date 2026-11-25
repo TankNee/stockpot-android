@@ -42,6 +42,7 @@ object StockCode {
     fun guessMarket(code: String): String {
         val c = code.trim().lowercase()
         return when {
+            c.startsWith("fund") -> Market.FUND
             c.startsWith("hk") -> Market.HK
             c.startsWith("us") -> Market.US
             c.startsWith("sh") || c.startsWith("sz") || c.startsWith("bj") -> Market.A
@@ -55,6 +56,7 @@ object StockCode {
         val c = code.trim()
         val lower = c.lowercase()
         return when (market) {
+            Market.FUND -> "fund" + c.removePrefix("fund")
             Market.HK -> if (lower.startsWith("hk")) lower else "hk" + c.padStart(5, '0')
             Market.US -> if (lower.startsWith("us")) lower else "us" + lower
             else -> when {
@@ -65,4 +67,10 @@ object StockCode {
             }
         }
     }
+
+    /**
+     * 场外基金的 6 位代码和 A 股同号（000001 既是平安银行也是华夏成长），
+     * 光看代码分不出来，只能由搜索结果显式告诉我们是基金。
+     */
+    fun isFundId(id: String): Boolean = id.trim().lowercase().startsWith("fund")
 }

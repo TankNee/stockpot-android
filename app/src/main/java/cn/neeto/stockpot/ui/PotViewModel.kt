@@ -22,6 +22,7 @@ import cn.neeto.stockpot.core.model.CurvePoint
 import cn.neeto.stockpot.core.model.Entry
 import cn.neeto.stockpot.core.model.Holding
 import cn.neeto.stockpot.core.model.Ledger
+import cn.neeto.stockpot.core.model.Market
 import cn.neeto.stockpot.core.model.Project
 import cn.neeto.stockpot.core.model.Quote
 import cn.neeto.stockpot.core.model.Rates
@@ -382,7 +383,7 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** 一个账户里加/改一只票。 */
-    fun saveHolding(accountId: String, stock: Stock, costE4: Long, shares: Long) = store.update { ledger ->
+    fun saveHolding(accountId: String, stock: Stock, costE4: Long, shares: Double) = store.update { ledger ->
         val accounts = ledger.stockAccounts.map { account ->
             if (account.id == accountId) {
                 LedgerOps.putHolding(account, stock.id, Holding(costE4 = costE4, shares = shares))
@@ -416,8 +417,9 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
      * `force` 是用户点刷新的时候，重新拉一遍。
      */
     fun ensureDaily(stocks: List<Stock>, force: Boolean = false) {
+        // 场外基金没有日 K，走势图也画不了，别去空跑接口
         val targets = stocks.filter { stock ->
-            force || chartAsked.add("day:" + stock.id)
+            stock.market != Market.FUND && (force || chartAsked.add("day:" + stock.id))
         }
         if (targets.isEmpty()) return
         viewModelScope.launch {
@@ -435,6 +437,7 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 分时是当天的，进详情页拉一次；手点刷新会强制重拉。 */
     fun ensureMinute(stock: Stock, force: Boolean = false) {
+        if (stock.market == Market.FUND) return
         if (!force && !chartAsked.add("min:" + stock.id)) return
         viewModelScope.launch {
             val points = runCatching { QuoteClient.fetchMinute(stock) }.getOrDefault(emptyList())

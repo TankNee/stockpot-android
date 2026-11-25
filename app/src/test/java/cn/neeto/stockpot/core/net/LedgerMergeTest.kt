@@ -144,7 +144,7 @@ class LedgerMergeTest {
                 StockAccount(
                     id = "acc1",
                     name = "主账户",
-                    entries = mapOf("sh600000" to Holding(costE4 = 95_500, shares = 100)),
+                    entries = mapOf("sh600000" to Holding(costE4 = 95_500, shares = 100.0)),
                 ),
             ),
         )
@@ -153,7 +153,7 @@ class LedgerMergeTest {
                 StockAccount(
                     id = "acc2",
                     name = "另一个",
-                    entries = mapOf("hk00700" to Holding(costE4 = 30_000, shares = 200)),
+                    entries = mapOf("hk00700" to Holding(costE4 = 30_000, shares = 200.0)),
                 ),
             ),
         )

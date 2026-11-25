@@ -81,7 +81,7 @@ fun StockDetailScreen(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onLoadMinute: () -> Unit,
-    onSaveHolding: (Stock, Long, Long) -> Unit,
+    onSaveHolding: (Stock, Long, Double) -> Unit,
     onRemoveHolding: (String) -> Unit,
 ) {
     val colors = LocalPotColors.current
@@ -104,6 +104,7 @@ fun StockDetailScreen(
     }
 
     val quote = quotes[stock.id]
+    val isFund = stock.market == Market.FUND
     val priceE4 = quote?.priceE4?.takeIf { it > 0 } ?: holding.costE4
     val rate = rates.toCny(stock.market)
     val value = StockMath.valueCents(holding.shares, priceE4, rate)
@@ -180,34 +181,44 @@ fun StockDetailScreen(
                         )
                     }
                     Spacer(Modifier.height(12.dp))
-                    Box(Modifier.width(176.dp)) {
-                        IconSegmented(
-                            options = listOf(
-                                IconOption("minute", "分时", Icons.Outlined.ShowChart),
-                                IconOption("day", "日 K", Icons.Outlined.CandlestickChart),
-                            ),
-                            selected = tab,
-                            onSelect = {
-                                tab = it
-                                picked = null
-                            },
+                    if (isFund) {
+                        // 场外基金只有每日净值，没有分时也没有 K 线
+                        Text(
+                            "场外基金没有分时和 K 线，净值每个交易日收盘后更新一次。",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.ink3,
+                            lineHeight = 18.sp,
                         )
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    when (tab) {
-                        "minute" -> MinuteBlock(
-                            points = minutePoints,
-                            baseline = quote?.prevCloseE4,
-                            picked = picked,
-                            onPick = { picked = it },
-                            tone = tone,
-                        )
+                    } else {
+                        Box(Modifier.width(176.dp)) {
+                            IconSegmented(
+                                options = listOf(
+                                    IconOption("minute", "分时", Icons.Outlined.ShowChart),
+                                    IconOption("day", "日 K", Icons.Outlined.CandlestickChart),
+                                ),
+                                selected = tab,
+                                onSelect = {
+                                    tab = it
+                                    picked = null
+                                },
+                            )
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        when (tab) {
+                            "minute" -> MinuteBlock(
+                                points = minutePoints,
+                                baseline = quote?.prevCloseE4,
+                                picked = picked,
+                                onPick = { picked = it },
+                                tone = tone,
+                            )
 
-                        else -> DayCandleBlock(
-                            candles = dayCandles,
-                            picked = picked,
-                            onPick = { picked = it },
-                        )
+                            else -> DayCandleBlock(
+                                candles = dayCandles,
+                                picked = picked,
+                                onPick = { picked = it },
+                            )
+                        }
                     }
                 }
             }
@@ -218,9 +229,17 @@ fun StockDetailScreen(
                     Spacer(Modifier.height(10.dp))
                     Row(Modifier.fillMaxWidth()) {
                         Column(Modifier.weight(1f)) {
-                            Text("股数", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+                            Text(
+                                if (isFund) "份额" else "股数",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.ink3,
+                            )
                             Spacer(Modifier.height(3.dp))
-                            Text("${holding.shares}", style = MoneyStyle.copy(fontSize = 16.sp), color = colors.ink)
+                            Text(
+                                holding.sharesText,
+                                style = MoneyStyle.copy(fontSize = 16.sp),
+                                color = colors.ink,
+                            )
                         }
                         Column(Modifier.weight(1f)) {
                             Text("成本价", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
@@ -268,7 +287,11 @@ fun StockDetailScreen(
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Outlined.Edit, contentDescription = null, tint = colors.ink2, modifier = Modifier.size(17.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("改成本 / 股数", style = MaterialTheme.typography.bodyMedium, color = colors.ink2)
+                            Text(
+                                if (isFund) "改成本 / 份额" else "改成本 / 股数",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = colors.ink2,
+                            )
                         }
                     }
                 }

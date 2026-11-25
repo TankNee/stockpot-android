@@ -37,7 +37,7 @@ object StockMath {
     }
 
     /** 市值（分）= 股数 × 价格(万分之一元) ÷ 100，港股美股再乘汇率。 */
-    fun valueCents(shares: Long, priceE4: Long, rate: Double = 1.0): Long =
+    fun valueCents(shares: Double, priceE4: Long, rate: Double = 1.0): Long =
         if (shares <= 0 || priceE4 <= 0) 0 else (shares * priceE4 / 100.0 * rate).roundToLong()
 
     fun forAccount(
@@ -215,7 +215,7 @@ object StockMath {
     }
 
     private data class Position(
-        val shares: Long,
+        val shares: Double,
         val costE4: Long,
         val rate: Double,
         val series: List<Pair<String, Long>>,

@@ -151,15 +151,15 @@ object LedgerFixtures {
                 id = "sacc_0",
                 name = "华泰",
                 entries = mapOf(
-                    "sh600519" to Holding(costE4 = 15_000_000, shares = 100),
-                    "sz000001" to Holding(costE4 = 1_200_000, shares = 2_000),
+                    "sh600519" to Holding(costE4 = 15_000_000, shares = 100.0),
+                    "sz000001" to Holding(costE4 = 1_200_000, shares = 2_000.0),
                 ),
                 updatedAt = "2026-11-25T10:00:00Z",
             ),
             StockAccount(
                 id = "sacc_1",
                 name = "富途",
-                entries = mapOf("hk00700" to Holding(costE4 = 32_000_000, shares = 200)),
+                entries = mapOf("hk00700" to Holding(costE4 = 32_000_000, shares = 200.0)),
                 updatedAt = "2026-11-25T10:00:00Z",
             ),
         )

@@ -61,7 +61,7 @@ class StockTest {
         val account = StockAccount(
             id = "a1",
             name = "华泰",
-            entries = mapOf("sh600396" to Holding(costE4 = 30_000, shares = 1_000)),
+            entries = mapOf("sh600396" to Holding(costE4 = 30_000, shares = 1_000.0)),
         )
         val quotes = mapOf(
             "sh600396" to Quote(
@@ -89,7 +89,7 @@ class StockTest {
         val account = StockAccount(
             id = "a1",
             name = "华泰",
-            entries = mapOf("sh600396" to Holding(costE4 = 30_000, shares = 1_000)),
+            entries = mapOf("sh600396" to Holding(costE4 = 30_000, shares = 1_000.0)),
         )
         val totals = StockMath.forAccount(account, mapOf(stock.id to stock), emptyMap())
 
@@ -104,8 +104,8 @@ class StockTest {
         val stock = Stock(id = "sh600396", code = "600396", name = "华电辽能")
         val quotes = mapOf("sh600396" to Quote(id = "sh600396", priceE4 = 34_200, prevCloseE4 = 34_000))
         val accounts = listOf(
-            StockAccount("a1", "华泰", mapOf("sh600396" to Holding(30_000, 1_000))),
-            StockAccount("a2", "中信", mapOf("sh600396" to Holding(32_000, 500))),
+            StockAccount("a1", "华泰", mapOf("sh600396" to Holding(30_000, 1_000.0))),
+            StockAccount("a2", "中信", mapOf("sh600396" to Holding(32_000, 500.0))),
         )
         val totals = StockMath.totals(accounts, listOf(stock), quotes)
 
@@ -151,7 +151,7 @@ class StockTest {
     @Test
     fun `账户资产走势按每日收盘价累加`() {
         val stock = Stock(id = "sh600396", code = "600396", name = "华电辽能")
-        val account = StockAccount("a1", "华泰", mapOf("sh600396" to Holding(costE4 = 30_000, shares = 1_000)))
+        val account = StockAccount("a1", "华泰", mapOf("sh600396" to Holding(costE4 = 30_000, shares = 1_000.0)))
         val candles = mapOf(
             "sh600396" to listOf(
                 Candle("2026-11-20", 33_000, 33_500, 33_800, 32_800),
@@ -172,7 +172,7 @@ class StockTest {
     @Test
     fun `没有日K时走势为空，不编造曲线`() {
         val stock = Stock(id = "sh600396", code = "600396")
-        val account = StockAccount("a1", "华泰", mapOf("sh600396" to Holding(30_000, 1_000)))
+        val account = StockAccount("a1", "华泰", mapOf("sh600396" to Holding(30_000, 1_000.0)))
         assertEquals(0, StockMath.trend(listOf(account), mapOf(stock.id to stock), emptyMap()).size)
     }
 
