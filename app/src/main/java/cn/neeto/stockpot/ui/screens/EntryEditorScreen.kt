@@ -35,6 +35,14 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
@@ -71,6 +79,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -1032,6 +1042,19 @@ private fun PlainField(
 }
 
 /**
+ * 分类弹层里的一屏：顶级分类、某一组、或者搜索结果。
+ *
+ * `key` 只看屏，不看内容——在搜索框里打字会一直换结果，但屏还是那一屏，
+ * 不该整块重新做一次过渡动画。
+ */
+private data class CategoryStage(
+    val key: String,
+    val group: CategoryDef?,
+    val tiles: List<Pair<CategoryDef, String>>,
+    val searching: Boolean,
+)
+
+/**
  * 分类选择：网格平铺，先只看顶级分类，进组之后才是子分类。
  *
  * 之前是一棵树：一行一个名字，分类一多就得一路滑，一屏还看不到几个。
@@ -1041,6 +1064,9 @@ private fun PlainField(
  *
  * 面板高度是算好的固定值：内容多少、键盘起落都不再影响它。
  * 之前高度跟着内容走，点一下输入框整块面板窜到全屏、打一个字又缩回半屏。
+ *
+ * 进组和退出组走一次横向滑动的过渡：进组内容从右边来、旧内容往左走；
+ * 退组反过来。不然一格点下去整片分类瞬间换掉，眼睛跟不上变了什么。
  */
 @Composable
 fun CategoryPickerDialog(
@@ -1071,18 +1097,34 @@ fun CategoryPickerDialog(
     val searching = needle.isNotEmpty()
 
     // 每一格：分类本身 + 副标题。子分类在搜索里标出所属分组，进组后第一格是「整个」。
-    val tiles: List<Pair<CategoryDef, String>> = when {
-        searching -> buildList {
-            tree.forEach { (group, children) ->
-                if (group.name.contains(needle)) add(group to "")
-                children
-                    .filter { it.name.contains(needle) || group.name.contains(needle) }
-                    .forEach { add(it to group.name) }
-            }
-        }
-        current != null -> listOf(current.first to "整个") + current.second.map { it to "" }
-        else -> tree.map { it.first to "" }
+    val stage: CategoryStage = when {
+        searching -> CategoryStage(
+            key = "search",
+            group = null,
+            searching = true,
+            tiles = buildList {
+                tree.forEach { (group, children) ->
+                    if (group.name.contains(needle)) add(group to "")
+                    children
+                        .filter { it.name.contains(needle) || group.name.contains(needle) }
+                        .forEach { add(it to group.name) }
+                }
+            },
+        )
+        current != null -> CategoryStage(
+            key = current.first.path,
+            group = current.first,
+            searching = false,
+            tiles = listOf(current.first to "整个") + current.second.map { it to "" },
+        )
+        else -> CategoryStage(
+            key = "root",
+            group = null,
+            searching = false,
+            tiles = tree.map { it.first to "" },
+        )
     }
+    val tiles = stage.tiles
 
     val density = LocalDensity.current
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
@@ -1147,50 +1189,81 @@ fun CategoryPickerDialog(
         }
 
         Spacer(Modifier.height(10.dp))
-        if (tiles.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    if (searching) "没有叫「$needle」的分类" else "还没有分类",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = colors.ink3,
-                )
-            }
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(4),
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 4.dp),
-            ) {
-                // 进组之后顶上给一条返回，别让人只能靠系统返回键
-                if (current != null && !searching) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        GroupHeader(
-                            group = current.first,
-                            onBack = { openGroup = null },
+        // 换屏（进组 / 退组 / 开始搜索）时滑一次，同一屏里换内容不动
+        AnimatedContent(
+            targetState = stage,
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            contentKey = { it.key },
+            transitionSpec = {
+                val forward = targetState.group != null && initialState.group == null
+                val backward = targetState.group == null && initialState.group != null
+                when {
+                    // 进组：新的一屏从右边进来，旧的往左让开
+                    forward -> (
+                        slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) { it / 6 } +
+                            fadeIn(tween(180))
+                        ) togetherWith (
+                        slideOutHorizontally(tween(240, easing = FastOutSlowInEasing)) { -it / 6 } +
+                            fadeOut(tween(120))
+                        )
+                    // 退组：反过来
+                    backward -> (
+                        slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) { -it / 6 } +
+                            fadeIn(tween(180))
+                        ) togetherWith (
+                        slideOutHorizontally(tween(240, easing = FastOutSlowInEasing)) { it / 6 } +
+                            fadeOut(tween(120))
+                        )
+                    else -> fadeIn(tween(160)) togetherWith fadeOut(tween(120))
+                }
+            },
+            label = "categoryStage",
+        ) { shown ->
+            if (shown.tiles.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (shown.searching) "没有叫「$needle」的分类" else "还没有分类",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.ink3,
+                    )
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(4),
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 4.dp),
+                ) {
+                    // 进组之后顶上给一条返回，别让人只能靠系统返回键
+                    if (shown.group != null) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            GroupHeader(
+                                group = shown.group,
+                                onBack = { openGroup = null },
+                            )
+                        }
+                    }
+                    items(shown.tiles, key = { it.first.path }) { (def, note) ->
+                        val children = tree.firstOrNull { it.first.path == def.path }?.second
+                        CategoryTile(
+                            def = def,
+                            note = note,
+                            active = selected == def.path,
+                            // 点带子分类的那格是「进去看看」，不是选中；
+                            // 里面的第一格「整个」才是用它自己
+                            onClick = {
+                                if (!shown.searching && note.isEmpty() && !children.isNullOrEmpty()) {
+                                    openGroup = def.name
+                                } else {
+                                    onPick(def.path)
+                                }
+                            },
                         )
                     }
-                }
-                items(tiles, key = { it.first.path }) { (def, note) ->
-                    val children = tree.firstOrNull { it.first.path == def.path }?.second
-                    CategoryTile(
-                        def = def,
-                        note = note,
-                        active = selected == def.path,
-                        // 点带子分类的那格是「进去看看」，不是选中；
-                        // 里面的第一格「整个」才是用它自己
-                        onClick = {
-                            if (!searching && note.isEmpty() && !children.isNullOrEmpty()) {
-                                openGroup = def.name
-                            } else {
-                                onPick(def.path)
-                            }
-                        },
-                    )
                 }
             }
         }
@@ -1241,6 +1314,9 @@ private fun GroupHeader(group: CategoryDef, onBack: () -> Unit) {
 /**
  * 网格里的一格：图标在上、名字在下，可选一行小字。
  * 选中用品牌色描边 + 淡底，和设置里的图标网格、方向分段是同一套选中态。
+ *
+ * 行高是压死的（includeFontPadding = false）：中文字体的默认行框比字大一圈，
+ * 两行叠起来正好顶出格子底边，格子底下那行小字就会被裁掉半截。
  */
 @Composable
 private fun CategoryTile(
@@ -1251,18 +1327,19 @@ private fun CategoryTile(
 ) {
     val colors = LocalPotColors.current
     val shape = RoundedCornerShape(13.dp)
+    val tight = PlatformTextStyle(includeFontPadding = false)
     Box(
         modifier = Modifier
             .fillMaxWidth()
             // 紧凑一点：图标和上下边各留一口气就行，格子多了才不会一屏只看到三行
-            .height(70.dp)
+            .height(74.dp)
             .clip(shape)
             .background(if (active) colors.brandTint else colors.panel2)
             .border(1.dp, if (active) colors.brand else Color.Transparent, shape)
             .clickable { onClick() },
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 5.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -1271,10 +1348,14 @@ private fun CategoryTile(
                 size = 20.dp,
                 tint = if (active) colors.brandInk else colors.brand,
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(3.dp))
             Text(
                 text = def.name,
-                fontSize = 12.sp,
+                style = TextStyle(
+                    fontSize = 12.sp,
+                    lineHeight = 14.sp,
+                    platformStyle = tight,
+                ),
                 fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
                 color = if (active) colors.brandInk else colors.ink,
                 maxLines = 1,
@@ -1283,7 +1364,11 @@ private fun CategoryTile(
             if (note.isNotEmpty()) {
                 Text(
                     text = note,
-                    fontSize = 10.sp,
+                    style = TextStyle(
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
+                        platformStyle = tight,
+                    ),
                     color = if (active) colors.brandInk.copy(alpha = 0.65f) else colors.ink3,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
