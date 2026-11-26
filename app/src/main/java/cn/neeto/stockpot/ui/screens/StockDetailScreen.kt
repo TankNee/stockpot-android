@@ -81,7 +81,7 @@ fun StockDetailScreen(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onLoadMinute: () -> Unit,
-    onSaveHolding: (Stock, Long, Double) -> Unit,
+    onEditHolding: () -> Unit,
     onRemoveHolding: (String) -> Unit,
 ) {
     val colors = LocalPotColors.current
@@ -90,7 +90,6 @@ fun StockDetailScreen(
     val holding = account?.entries?.get(stockId)
     var tab by rememberSaveable { mutableStateOf("minute") }
     var picked by remember(stockId, tab) { mutableStateOf<Int?>(null) }
-    var editing by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
 
     LaunchedEffect(stockId) { onLoadMinute() }
@@ -100,26 +99,6 @@ fun StockDetailScreen(
             EditorBar(title = "持仓", onBack = onBack, onConfirm = null)
             EmptyState("这只票不在账户里", "它可能已经被删掉了，回上一页看看。")
         }
-        return
-    }
-
-    // 改成本 / 份额也是整页，和账户页里那个「添加持仓」同一个界面
-    if (editing) {
-        HoldingEditorScreen(
-            accountName = account.name,
-            existing = stock to holding,
-            quotes = quotes,
-            onBack = { editing = false },
-            onSave = { updated, costE4, shares ->
-                onSaveHolding(updated, costE4, shares)
-                editing = false
-            },
-            onDelete = { id ->
-                onRemoveHolding(id)
-                editing = false
-                onBack()
-            },
-        )
         return
     }
 
@@ -302,7 +281,7 @@ fun StockDetailScreen(
                     PotCard(
                         modifier = Modifier.weight(1f),
                         padding = PaddingValues(vertical = 14.dp),
-                        onClick = { editing = true },
+                        onClick = onEditHolding,
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Outlined.Edit, contentDescription = null, tint = colors.ink2, modifier = Modifier.size(17.dp))

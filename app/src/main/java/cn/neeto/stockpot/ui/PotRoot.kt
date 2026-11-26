@@ -134,6 +134,7 @@ import cn.neeto.stockpot.ui.screens.ProjectDetailScreen
 import cn.neeto.stockpot.ui.screens.ProjectsScreen
 import cn.neeto.stockpot.ui.screens.SettingsScreen
 import cn.neeto.stockpot.ui.screens.StockAccountScreen
+import cn.neeto.stockpot.ui.screens.HoldingEditorScreen
 import cn.neeto.stockpot.ui.screens.StockDetailScreen
 import cn.neeto.stockpot.ui.screens.StocksScreen
 import cn.neeto.stockpot.ui.screens.ThemeScreen
@@ -180,6 +181,8 @@ private const val ROUTE_REFUNDS = "settings/refunds"
 private const val ROUTE_THEME = "settings/theme"
 private const val STOCK_ACC_PREFIX = "stock-acc/"
 private const val STOCK_DETAIL_PREFIX = "stock/"
+/** 添加 / 编辑持仓：stock-holding/<账户 id>[/<股票 id>]，不带股票 id 就是新建 */
+private const val STOCK_HOLDING_PREFIX = "stock-holding/"
 
 private fun tabIndex(id: String): Int = tabs.indexOfFirst { it.id == id }.let { if (it < 0) 0 else it }
 
@@ -191,6 +194,7 @@ private fun routeOrder(route: String): Int = when {
     route.startsWith(PROJECT_PREFIX) -> 100
     route == ROUTE_WALLET_EDIT -> 98
     route == ROUTE_WALLET_KIND -> 97
+    route.startsWith(STOCK_HOLDING_PREFIX) -> 99
     route.startsWith(STOCK_DETAIL_PREFIX) -> 96
     route.startsWith(STOCK_ACC_PREFIX) -> 95
     route == ROUTE_STOCKS -> 94
@@ -206,7 +210,8 @@ private fun isOverlay(route: String): Boolean =
     route == ROUTE_IMPORT || route == ROUTE_PROJECTS || route.startsWith(PROJECT_PREFIX) ||
         route == ROUTE_WALLET_EDIT || route == ROUTE_WALLET_KIND ||
         route == ROUTE_STOCKS || route.startsWith(STOCK_ACC_PREFIX) ||
-        route.startsWith(STOCK_DETAIL_PREFIX) || route == ROUTE_TITLE_SWAP ||
+        route.startsWith(STOCK_DETAIL_PREFIX) || route.startsWith(STOCK_HOLDING_PREFIX) ||
+        route == ROUTE_TITLE_SWAP ||
         route == ROUTE_ACCOUNT || route == ROUTE_CATEGORIES || route == ROUTE_RULES ||
         route == ROUTE_DATA || route == ROUTE_REFUNDS || route == ROUTE_THEME
 
@@ -787,19 +792,12 @@ fun PotRoot(
                                             vm.refreshQuotes()
                                             vm.ensureDaily(ledger.stocks, force = true)
                                         },
-                                        onSaveHolding = { stock, costE4, shares ->
-                                            vm.saveHolding(
-                                                current.removePrefix(STOCK_ACC_PREFIX),
-                                                stock,
-                                                costE4,
-                                                shares,
+                                        onOpenHolding = { stockId ->
+                                            val accountId = current.removePrefix(STOCK_ACC_PREFIX)
+                                            openOverlay(
+                                                STOCK_HOLDING_PREFIX + accountId +
+                                                    if (stockId == null) "" else "/$stockId",
                                             )
-                                            vm.refreshQuotes(silent = true)
-                                            // 新加的票还没有日 K，补一下才能画走势
-                                            vm.ensureDaily(listOf(stock), force = true)
-                                        },
-                                        onRemoveHolding = { stockId ->
-                                            vm.removeHolding(current.removePrefix(STOCK_ACC_PREFIX), stockId)
                                         },
                                         onRename = { name ->
                                             val target = ledger.stockAccounts.firstOrNull {
@@ -850,12 +848,37 @@ fun PotRoot(
                                             onLoadMinute = {
                                                 ledger.stocks.firstOrNull { it.id == stockId }?.let { vm.ensureMinute(it) }
                                             },
-                                            onSaveHolding = { stock, costE4, shares ->
-                                                vm.saveHolding(accountId, stock, costE4, shares)
-                                                vm.refreshQuotes(silent = true)
-                                                vm.ensureDaily(listOf(stock), force = true)
+                                            onEditHolding = {
+                                                openOverlay("$STOCK_HOLDING_PREFIX$accountId/$stockId")
                                             },
                                             onRemoveHolding = { id -> vm.removeHolding(accountId, id) },
+                                        )
+                                    }
+
+                                    current.startsWith(STOCK_HOLDING_PREFIX) -> {
+                                        val parts = current.removePrefix(STOCK_HOLDING_PREFIX).split("/")
+                                        val accountId = parts.firstOrNull().orEmpty()
+                                        val stockId = parts.getOrNull(1).orEmpty()
+                                        val account = ledger.stockAccounts.firstOrNull { it.id == accountId }
+                                        val stock = ledger.stocks.firstOrNull { it.id == stockId }
+                                        val holding = account?.entries?.get(stockId)
+                                        HoldingEditorScreen(
+                                            accountName = account?.name.orEmpty(),
+                                            existing = if (stock != null && holding != null) stock to holding else null,
+                                            quotes = quotes,
+                                            onBack = { popOverlay() },
+                                            onSave = { saved, costE4, shares ->
+                                                vm.saveHolding(accountId, saved, costE4, shares)
+                                                vm.refreshQuotes(silent = true)
+                                                // 新加的票还没有日 K，补一下才能画走势
+                                                vm.ensureDaily(listOf(saved), force = true)
+                                                toast = if (stock == null) "已加入持仓" else "持仓已更新"
+                                                popOverlay()
+                                            },
+                                            onDelete = { id ->
+                                                vm.removeHolding(accountId, id)
+                                                vm.refreshQuotes(silent = true)
+                                            },
                                         )
                                     }
 

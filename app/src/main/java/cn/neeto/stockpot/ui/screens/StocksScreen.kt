@@ -392,8 +392,7 @@ fun StockAccountScreen(
     busy: Boolean,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
-    onSaveHolding: (Stock, Long, Double) -> Unit,
-    onRemoveHolding: (String) -> Unit,
+    onOpenHolding: (String?) -> Unit,
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
     onOpenStock: (String) -> Unit,
@@ -402,8 +401,6 @@ fun StockAccountScreen(
     val colors = LocalPotColors.current
     val haptics = rememberHaptics()
     val account = ledger.stockAccounts.firstOrNull { it.id == accountId }
-    var editingStockId by remember { mutableStateOf<String?>(null) }
-    var adding by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var span by rememberSaveable { mutableStateOf("1m") }
@@ -435,35 +432,6 @@ fun StockAccountScreen(
             limit = 250,
         )
     }
-    val editingHolding: Pair<Stock, Holding>? = editingStockId?.let { id ->
-        val stock = ledger.stocks.firstOrNull { it.id == id }
-        val holding = account.entries[id]
-        if (stock != null && holding != null) stock to holding else null
-    }
-
-    // 添加 / 编辑持仓是整页，不是盖在上面的弹层
-    if (adding || editingHolding != null) {
-        HoldingEditorScreen(
-            accountName = account.name,
-            existing = editingHolding,
-            quotes = quotes,
-            onBack = {
-                adding = false
-                editingStockId = null
-            },
-            onSave = { stock, costE4, shares ->
-                onSaveHolding(stock, costE4, shares)
-                adding = false
-                editingStockId = null
-            },
-            onDelete = { stockId ->
-                onRemoveHolding(stockId)
-                editingStockId = null
-            },
-        )
-        return
-    }
-
     Column(Modifier.fillMaxWidth()) {
         EditorBar(
             title = account.name,
@@ -526,7 +494,7 @@ fun StockAccountScreen(
                         color = colors.ink3,
                         modifier = Modifier.weight(1f),
                     )
-                    PotPillButton(text = "添加持仓", icon = Icons.Outlined.Add, onClick = { adding = true })
+                    PotPillButton(text = "添加持仓", icon = Icons.Outlined.Add, onClick = { onOpenHolding(null) })
                 }
             }
 
@@ -553,7 +521,7 @@ fun StockAccountScreen(
                                 onLongClick = {
                                     // 长按是「进编辑」这种不常见又容易误触的操作，给一下沉的
                                     haptics(Haptic.Confirm)
-                                    editingStockId = line.stock.id
+                                    onOpenHolding(line.stock.id)
                                 },
                             )
                             .padding(start = 14.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
@@ -1074,7 +1042,11 @@ internal fun HoldingEditorScreen(
                     text = "删除这只持仓",
                     icon = Icons.Outlined.DeleteOutline,
                     tone = PillTone.Danger,
-                    onClick = { onDelete(existing.first.id) },
+                    onClick = {
+                        // 删完就回上一页；改代码时内部也会调 onDelete，那条路不该跳走
+                        onDelete(existing.first.id)
+                        onBack()
+                    },
                 )
             }
 
