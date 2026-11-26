@@ -131,9 +131,11 @@ private fun FoldReveal(
                 .drawWithContent {
                     val t = progress()
                     val area = bounds
-                    // 还没量到自己：按整页画，别在测量完成前闪一帧
+                    // 还没量到自己的位置：这一帧什么都别画。
+                    // 以前这里是「按整页画」，结果开场的头一帧整页不裁剪地铺满屏幕，
+                    // 下一帧才缩回一条缝重新摊开 —— 看着就是先「啪」一下铺满，再补一段动画。
+                    // 跳过一帧（16ms）看不出来，因为底下那一页原样没变。
                     if (area.width <= 1f || area.height <= 1f) {
-                        drawContent()
                         return@drawWithContent
                     }
 
@@ -240,10 +242,11 @@ private fun FoldReveal(
                     .fillMaxSize()
                     .graphicsLayer {
                         val t = progress()
-                        // 纸先摊开、字后落定：纸开到一半多才开始浮上来，
+                        // 纸先摊开、字后落定：纸开到一大半才开始浮上来，
                         // 之前看到的是一张空白卡片在长，不会有半截标题被裁在纸边上的错觉。
-                        // 收起时反过来，字先退干净，纸再缩回去。
-                        alpha = ((t - 0.55f) / 0.3f).coerceIn(0f, 1f)
+                        // 收尾要贴到底（1.0 才满），否则纸还在长、字已经到齐，
+                        // 看着像「啪」一下把内容铺满 —— 改成和纸同时落定，动静才连得上。
+                        alpha = ((t - 0.62f) / 0.38f).coerceIn(0f, 1f)
                     },
             ) {
                 content()

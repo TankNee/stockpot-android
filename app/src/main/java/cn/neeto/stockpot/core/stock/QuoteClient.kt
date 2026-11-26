@@ -126,14 +126,19 @@ object QuoteClient {
             val name = (obj["NAME"] as? JsonPrimitive)?.contentOrNull?.trim() ?: return@mapNotNull null
             // 场外基金代码一定是 6 位数字，别把基金经理、基金公司也当标的
             if (code.length != 6 || !code.all { it.isDigit() }) return@mapNotNull null
+            // 这个接口不只返基金：搜 600519 会把「贵州茅台」也带回来（CATEGORY=100）。
+            // 基金那一类的 CATEGORY 是 700，FundBaseInfo.FTYPE 也有值；两个都拿来卡。
+            val category = (obj["CATEGORY"] as? JsonPrimitive)?.contentOrNull?.trim()
             val type = ((obj["FundBaseInfo"] as? JsonObject)?.get("FTYPE") as? JsonPrimitive)
-                ?.contentOrNull?.takeIf { it.isNotBlank() } ?: "场外基金"
+                ?.contentOrNull?.trim()
+            val looksLikeFund = category == "700" || !type.isNullOrEmpty()
+            if (!looksLikeFund) return@mapNotNull null
             StockSearchHit(
                 id = "fund$code",
                 code = code,
                 name = name,
                 market = Market.FUND,
-                kind = type,
+                kind = type?.takeIf { it.isNotEmpty() } ?: "场外基金",
             )
         }.distinctBy { it.id }.take(limit)
     }

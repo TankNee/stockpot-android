@@ -369,7 +369,9 @@ fun PotRoot(
     LaunchedEffect(editorOpen) {
         if (editorOpen) {
             editorShowing = true
-            editorProgress.animateTo(1f, spring(dampingRatio = 1f, stiffness = 420f))
+            // 420 太硬：两百毫秒就走完九成五，最后那点再慢慢蹭，
+            // 观感是「先弹满、再磨蹭」。降到 320，整段摊开看得见。
+            editorProgress.animateTo(1f, spring(dampingRatio = 1f, stiffness = 320f))
         } else if (editorShowing) {
             editorProgress.animateTo(0f, tween(260, easing = FastOutLinearInEasing))
             editorShowing = false

@@ -16,15 +16,17 @@ import org.junit.Test
 class FundQuoteTest {
 
     /**
-     * fundsuggest 的返回：真基金和基金公司（代码不是 6 位）混在一起。
-     * 这个接口本身不返股票，所以只靠「6 位数字」过滤就够。
+     * fundsuggest 的返回：真基金、股票、基金公司混在一起。
+     * 搜 600519 时这个接口真的会把「贵州茅台」带回来（CATEGORY=100、没有 FTYPE），
+     * 所以光看「6 位数字」不够。
      */
     private val suggest = """
         {"Datas":[
-          {"CODE":"005827","NAME":"易方达蓝筹精选混合","FundBaseInfo":{"FTYPE":"混合型-偏股"},"MktNum":"150"},
-          {"CODE":"000001","NAME":"华夏成长混合","FundBaseInfo":{"FTYPE":"混合型-灵活"},"MktNum":"150"},
-          {"CODE":"320007","NAME":"诺安成长混合","FundBaseInfo":{"FTYPE":"混合型-偏股"},"MktNum":"150"},
-          {"CODE":"88","NAME":"招商基金","FundBaseInfo":{},"MktNum":"150"}
+          {"CODE":"005827","NAME":"易方达蓝筹精选混合","CATEGORY":700,"FundBaseInfo":{"FTYPE":"混合型-偏股"},"MktNum":"150"},
+          {"CODE":"000001","NAME":"华夏成长混合","CATEGORY":700,"FundBaseInfo":{"FTYPE":"混合型-灵活"},"MktNum":"150"},
+          {"CODE":"320007","NAME":"诺安成长混合","CATEGORY":700,"FundBaseInfo":{"FTYPE":"混合型-偏股"},"MktNum":"150"},
+          {"CODE":"600519","NAME":"贵州茅台","CATEGORY":100,"MktNum":"1"},
+          {"CODE":"88","NAME":"招商基金","CATEGORY":700,"FundBaseInfo":{},"MktNum":"150"}
         ]}
     """.trimIndent()
 
@@ -42,7 +44,7 @@ class FundQuoteTest {
     fun `场外基金搜索单独归到 fund 市场`() {
         val hits = QuoteClient.parseFundSearch(suggest)
 
-        // 88 是基金公司，不是 6 位数字，得滤掉
+        // 600519 是股票（同名，但不是基金），88 是基金公司，都得滤掉
         assertEquals(listOf("fund005827", "fund000001", "fund320007"), hits.map { it.id })
         assertTrue(hits.all { it.market == Market.FUND })
         assertEquals("混合型-偏股", hits.first().kind)

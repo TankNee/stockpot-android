@@ -280,7 +280,9 @@ fun StockDetailScreen(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     PotCard(
                         modifier = Modifier.weight(1f),
-                        padding = PaddingValues(vertical = 14.dp),
+                        // 水平内边距要和其它卡片一致：之前只给了 vertical，
+                        // 铅笔图标贴着卡片左边缘，和「这笔持仓」的文字对不上
+                        padding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                         onClick = onEditHolding,
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
