@@ -727,7 +727,15 @@ fun PotPillButton(
 }
 
 /** 图标分段控件的一个选项。 */
-data class IconOption(val id: String, val label: String, val icon: ImageVector)
+data class IconOption(
+    val id: String,
+    val label: String,
+    val icon: ImageVector,
+    /** 选中时的强调色。支出给红、收入给绿；不传就走品牌色 */
+    val tint: Color? = null,
+    /** 选中时的底色，一般给 tint 的淡版 */
+    val tintSoft: Color? = null,
+)
 
 /**
  * 分段控件，每一格都是「图标 + 文字」。
@@ -753,11 +761,14 @@ fun IconSegmented(
     ) {
         options.forEach { option ->
             val active = option.id == selected
+            // 收支各自带色：支出红、收入绿，选中时一眼能认出方向
+            val activeSoft = option.tintSoft ?: colors.brandTint
+            val activeInk = option.tint ?: colors.brandInk
             Row(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(9.dp))
-                    .background(if (active) colors.brandTint else Color.Transparent)
+                    .background(if (active) activeSoft else Color.Transparent)
                     .clickable {
                         if (!active) haptics(Haptic.Tap)
                         onSelect(option.id)
@@ -769,7 +780,7 @@ fun IconSegmented(
                 Icon(
                     option.icon,
                     contentDescription = null,
-                    tint = if (active) colors.brandInk else colors.ink3,
+                    tint = if (active) activeInk else colors.ink3,
                     modifier = Modifier.size(15.dp),
                 )
                 Spacer(Modifier.width(4.dp))
@@ -777,7 +788,7 @@ fun IconSegmented(
                     text = option.label,
                     fontSize = 12.5.sp,
                     fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
-                    color = if (active) colors.brandInk else colors.ink3,
+                    color = if (active) activeInk else colors.ink3,
                     maxLines = 1,
                 )
             }

@@ -19,6 +19,20 @@ class QuoteSearchTest {
         "^us~tcehy.ps~\\u817e\\u8baf\\u63a7\\u80a1(adr)~txkgadr~GP\""
 
     @Test
+    fun `按响应头的编码解，东财的 UTF-8 不会变成乱码`() {
+        val name = "易方达蓝筹精选混合"
+
+        // 东财返回的头是 charset=utf-8，以前一律按 gb18030 解，名字就是乱码
+        assertEquals(name, QuoteClient.decode(name.toByteArray(Charsets.UTF_8), "text/plain; charset=utf-8"))
+        // 腾讯老接口是 GBK
+        val gbk = java.nio.charset.Charset.forName("GBK")
+        assertEquals(name, QuoteClient.decode(name.toByteArray(gbk), "text/html; charset=GBK"))
+        // 响应头没声明：UTF-8 能严格解出来就当 UTF-8，否则退回 GB18030
+        assertEquals(name, QuoteClient.decode(name.toByteArray(Charsets.UTF_8), null))
+        assertEquals(name, QuoteClient.decode(name.toByteArray(gbk), null))
+    }
+
+    @Test
     fun `A股一条：名字要还原成中文，id 带市场前缀`() {
         val hits = QuoteClient.parseSearch(maotai)
 

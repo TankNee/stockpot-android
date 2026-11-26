@@ -1,6 +1,7 @@
 package cn.neeto.stockpot.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -10,7 +11,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -68,6 +72,7 @@ import cn.neeto.stockpot.core.model.StockAccount
 import cn.neeto.stockpot.core.stock.QuoteClient
 import cn.neeto.stockpot.core.stock.StockSearchHit
 import kotlinx.coroutines.delay
+import cn.neeto.stockpot.ui.components.SheetHeader
 import cn.neeto.stockpot.ui.components.PotPillButton
 import cn.neeto.stockpot.ui.components.PillTone
 import cn.neeto.stockpot.ui.components.EmptyState
@@ -438,6 +443,29 @@ fun StockAccountScreen(
         if (stock != null && holding != null) stock to holding else null
     }
 
+    // 添加 / 编辑持仓是整页，不是盖在上面的弹层
+    if (adding || editingHolding != null) {
+        HoldingEditorScreen(
+            accountName = account.name,
+            existing = editingHolding,
+            quotes = quotes,
+            onBack = {
+                adding = false
+                editingStockId = null
+            },
+            onSave = { stock, costE4, shares ->
+                onSaveHolding(stock, costE4, shares)
+                adding = false
+                editingStockId = null
+            },
+            onDelete = { stockId ->
+                onRemoveHolding(stockId)
+                editingStockId = null
+            },
+        )
+        return
+    }
+
     Column(Modifier.fillMaxWidth()) {
         EditorBar(
             title = account.name,
@@ -602,27 +630,6 @@ fun StockAccountScreen(
                 }
             }
         }
-    }
-
-    if (adding || editingHolding != null) {
-        HoldingEditorSheet(
-            accountName = account.name,
-            existing = editingHolding,
-            quotes = quotes,
-            onDismiss = {
-                adding = false
-                editingStockId = null
-            },
-            onSave = { stock, costE4, shares ->
-                onSaveHolding(stock, costE4, shares)
-                adding = false
-                editingStockId = null
-            },
-            onDelete = { stockId ->
-                onRemoveHolding(stockId)
-                editingStockId = null
-            },
-        )
     }
 
     if (renaming) {
@@ -868,12 +875,20 @@ private fun MiniTabs(
 
 /* ------------------------------ 添加 / 编辑持仓 ------------------------------ */
 
+/**
+ * 添加 / 编辑持仓是整页，不再是一个底部弹层。
+ *
+ * 弹层里塞了搜索框、候选列表、名称、成本、股数，一开键盘就顶出去一半；
+ * 而且候选列表自己滚、外面的表单也滚，两个方向一样的滚动叠在一起，
+ * 拖候选的时候整个表单跟着动。改成页面之后搜索和表单在同一层：
+ * 候选最多 6 条，直接铺开跟着页面滚，不再有第二层滚动。
+ */
 @Composable
-internal fun HoldingEditorSheet(
+internal fun HoldingEditorScreen(
     accountName: String,
     existing: Pair<Stock, Holding>?,
     quotes: Map<String, Quote>,
-    onDismiss: () -> Unit,
+    onBack: () -> Unit,
     onSave: (Stock, Long, Double) -> Unit,
     onDelete: (String) -> Unit,
 ) {
@@ -921,135 +936,146 @@ internal fun HoldingEditorSheet(
     val qtyLabel = if (isFund) "份额" else "股数"
     val canSave = code.isNotBlank() && (sharesText.toDoubleOrNull() ?: 0.0) > 0
 
-    PotSheet(onDismiss = onDismiss) {
-      // 候选列表一出现、再加上软键盘，内容会顶出一屏，所以这条表单自己滚
-      Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
-        Text(
-            if (existing == null) "添加持仓" else "编辑持仓",
-            style = MaterialTheme.typography.titleLarge,
-            color = colors.ink,
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            "$accountName · 成本价和${qtyLabel}自己维护，行情自动更新",
-            style = MaterialTheme.typography.labelSmall,
-            color = colors.ink3,
-        )
-        Spacer(Modifier.height(14.dp))
+    BackHandler(onBack = onBack)
 
-        SheetField(
-            label = "代码或名称",
-            value = query,
-            placeholder = "600519 / 易方达 / AAPL",
-            onValueChange = { input ->
-                query = input
-                // 一改字，之前选中的那条就不作数了，重新搜
-                picked = null
-            },
+    fun submit() {
+        if (!canSave) return
+        haptics(Haptic.Confirm)
+        val stock = Stock(
+            id = stockId,
+            code = code,
+            name = name.trim(),
+            market = market,
+            updatedAt = Fmt.stamp(),
         )
-        if (picked == null && hits.isNotEmpty()) {
-            Spacer(Modifier.height(6.dp))
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 152.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.panel2)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                hits.forEachIndexed { index, hit ->
-                    if (index > 0) Hairline(Modifier.padding(horizontal = 12.dp))
-                    SearchHitRow(hit) {
-                        haptics(Haptic.Tap)
-                        picked = hit
-                        query = hit.name
-                        name = hit.name
+        // 改了代码就先把旧票从账户里摘掉，不然会变成两条持仓
+        if (existing != null && existing.first.id != stock.id) {
+            onDelete(existing.first.id)
+        }
+        onSave(stock, StockCode.parsePriceE4(costText) ?: existing?.second?.costE4 ?: 0L,
+            sharesText.toDoubleOrNull() ?: 0.0)
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(colors.canvas)
+            .imePadding(),
+    ) {
+        Column(Modifier.statusBarsPadding()) {
+            SheetHeader(
+                title = if (existing == null) "添加持仓" else "编辑持仓",
+                subtitle = "$accountName · 成本价和${qtyLabel}自己维护，行情自动更新",
+                onClose = onBack,
+                trailing = { SaveChip(enabled = canSave) { submit() } },
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp),
+        ) {
+            Spacer(Modifier.height(14.dp))
+
+            SheetField(
+                label = "代码或名称",
+                value = query,
+                placeholder = "600519 / 易方达 / AAPL",
+                onValueChange = { input ->
+                    query = input
+                    // 一改字，之前选中的那条就不作数了，重新搜
+                    picked = null
+                },
+            )
+
+            if (picked == null && hits.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.panel2),
+                ) {
+                    hits.forEachIndexed { index, hit ->
+                        if (index > 0) Hairline(Modifier.padding(horizontal = 12.dp))
+                        SearchHitRow(hit) {
+                            haptics(Haptic.Tap)
+                            picked = hit
+                            query = hit.name
+                            name = hit.name
+                        }
                     }
                 }
+            } else if (searching) {
+                Spacer(Modifier.height(8.dp))
+                Text("正在找…", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
             }
-        } else if (searching) {
-            Spacer(Modifier.height(6.dp))
-            Text("正在找…", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
-        }
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "市场：${Market.label(market)}" +
-                (quote?.let { (if (isFund) " · 净值 " else " · 现价 ") + StockCode.priceText(it.priceE4) } ?: " · 暂未查到行情") +
-                if (code.isEmpty() && query.isNotBlank()) " · 从上面的候选里选一只" else "",
-            style = MaterialTheme.typography.labelSmall,
-            color = colors.ink3,
-        )
-        Spacer(Modifier.height(12.dp))
 
-        SheetField(
-            label = "名称",
-            value = name,
-            placeholder = "留空则用行情里的名字",
-            onValueChange = { name = it },
-        )
-        Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "市场：${Market.label(market)}" +
+                    (quote?.let { (if (isFund) " · 净值 " else " · 现价 ") + StockCode.priceText(it.priceE4) }
+                        ?: " · 暂未查到行情") +
+                    if (code.isEmpty() && query.isNotBlank()) " · 从上面的候选里选一只" else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.ink3,
+            )
 
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Spacer(Modifier.height(16.dp))
             SheetField(
-                label = "成本价",
-                value = costText,
-                placeholder = "每${unit}成本",
-                modifier = Modifier.weight(1f),
-                keyboardType = KeyboardType.Decimal,
-                onValueChange = { input -> costText = input.filter { it.isDigit() || it == '.' } },
+                label = "名称",
+                value = name,
+                placeholder = "留空则用行情里的名字",
+                onValueChange = { name = it },
             )
-            SheetField(
-                label = qtyLabel,
-                value = sharesText,
-                placeholder = "持有$qtyLabel",
-                modifier = Modifier.weight(1f),
-                keyboardType = KeyboardType.Decimal,
-                // 基金份额带小数（1234.56 份），只留数字会把点吃掉
-                onValueChange = { input -> sharesText = input.filter { it.isDigit() || it == '.' } },
-            )
-        }
 
-        Spacer(Modifier.height(10.dp))
-        val cost = StockCode.parsePriceE4(costText) ?: existing?.second?.costE4 ?: 0L
-        val shares = sharesText.toDoubleOrNull() ?: 0.0
-        val value = StockMath.valueCents(shares, quote?.priceE4?.takeIf { it > 0 } ?: cost)
-        Text(
-            "市值约 ${Fmt.yuan(value)}" + if (quote != null) " · 成本 ${Fmt.yuan(StockMath.valueCents(shares, cost))}" else " · 无行情时按成本算",
-            style = MaterialTheme.typography.labelSmall,
-            color = colors.ink3,
-        )
-
-        if (existing != null) {
-            Spacer(Modifier.height(6.dp))
-            PotPillButton(
-                text = "删除这只持仓",
-                icon = Icons.Outlined.DeleteOutline,
-                tone = PillTone.Danger,
-                onClick = { onDelete(existing.first.id) },
-            )
-        }
-
-        SheetActions(
-            confirmText = "保存",
-            enabled = canSave,
-            danger = false,
-            onConfirm = {
-                val stock = Stock(
-                    id = stockId,
-                    code = code,
-                    name = name.trim(),
-                    market = market,
-                    updatedAt = Fmt.stamp(),
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SheetField(
+                    label = "成本价",
+                    value = costText,
+                    placeholder = "每${unit}成本",
+                    modifier = Modifier.weight(1f),
+                    keyboardType = KeyboardType.Decimal,
+                    onValueChange = { input -> costText = input.filter { it.isDigit() || it == '.' } },
                 )
-                // 改了代码就先把旧票从账户里摘掉，不然会变成两条持仓
-                if (existing != null && existing.first.id != stock.id) {
-                    onDelete(existing.first.id)
-                }
-                onSave(stock, cost, shares)
-            },
-            onCancel = onDismiss,
-        )
-      }
+                SheetField(
+                    label = qtyLabel,
+                    value = sharesText,
+                    placeholder = "持有$qtyLabel",
+                    modifier = Modifier.weight(1f),
+                    keyboardType = KeyboardType.Decimal,
+                    // 基金份额带小数（1234.56 份），只留数字会把点吃掉
+                    onValueChange = { input -> sharesText = input.filter { it.isDigit() || it == '.' } },
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            val cost = StockCode.parsePriceE4(costText) ?: existing?.second?.costE4 ?: 0L
+            val shares = sharesText.toDoubleOrNull() ?: 0.0
+            val value = StockMath.valueCents(shares, quote?.priceE4?.takeIf { it > 0 } ?: cost)
+            Text(
+                "市值约 ${Fmt.yuan(value)}" +
+                    if (quote != null) " · 成本 ${Fmt.yuan(StockMath.valueCents(shares, cost))}"
+                    else " · 无行情时按成本算",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.ink3,
+            )
+
+            if (existing != null) {
+                Spacer(Modifier.height(18.dp))
+                PotPillButton(
+                    text = "删除这只持仓",
+                    icon = Icons.Outlined.DeleteOutline,
+                    tone = PillTone.Danger,
+                    onClick = { onDelete(existing.first.id) },
+                )
+            }
+
+            Spacer(Modifier.height(overlayBottomPadding() + 24.dp))
+        }
     }
 }
 

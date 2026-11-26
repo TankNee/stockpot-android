@@ -395,10 +395,38 @@ object QuoteClient {
         }
         return try {
             if (conn.responseCode !in 200..299) error("HTTP ${conn.responseCode}")
-            conn.inputStream.use { it.readBytes() }.toString(gb18030)
+            val bytes = conn.inputStream.use { it.readBytes() }
+            decode(bytes, conn.contentType)
         } finally {
             conn.disconnect()
         }
+    }
+
+    /**
+     * 按接口自己的编码解。以前这里一律 gb18030：腾讯的行情是 GBK，正好；
+     * 但东财的搜索和基金接口是 UTF-8，名字就解成乱码了。
+     *
+     * 顺序：响应头声明的 charset → 严格 UTF-8 → 退回 GB18030。
+     * 中间的严格解码是给「声明缺失或声明错了」的老接口兜底：GBK 的字节
+     * 拿去严格解 UTF-8 基本都会失败，所以不会把 GBK 误判成 UTF-8。
+     */
+    internal fun decode(bytes: ByteArray, contentType: String?): String {
+        val declared = contentType
+            ?.substringAfter("charset=", "")
+            ?.substringBefore(';')
+            ?.trim()
+            ?.trim('"')
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { name -> runCatching { Charset.forName(name) }.getOrNull() }
+        if (declared != null) {
+            return runCatching { bytes.toString(declared) }
+                .getOrElse { bytes.toString(gb18030) }
+        }
+        val strict = Charsets.UTF_8.newDecoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+        return runCatching { strict.decode(java.nio.ByteBuffer.wrap(bytes)).toString() }
+            .getOrElse { bytes.toString(gb18030) }
     }
 
     fun parse(body: String): Map<String, Quote> {

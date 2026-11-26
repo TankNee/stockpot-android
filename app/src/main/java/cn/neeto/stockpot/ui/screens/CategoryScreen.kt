@@ -310,7 +310,11 @@ private fun GroupRow(
                 else -> "通用"
             },
             style = MaterialTheme.typography.labelSmall,
-            color = colors.ink3,
+            color = when (group.kind) {
+                Kind.EXPENSE -> colors.expense
+                Kind.INCOME -> colors.income
+                else -> colors.ink3
+            },
         )
         Spacer(Modifier.width(6.dp))
         Text(
@@ -371,7 +375,7 @@ private fun ChildRow(
             Text(
                 if (child.kind == Kind.INCOME) "收入" else "支出",
                 style = MaterialTheme.typography.labelSmall,
-                color = colors.ink3,
+                color = if (child.kind == Kind.INCOME) colors.income else colors.expense,
             )
         }
         IconButton(onClick = onEdit, modifier = Modifier.size(34.dp)) {
@@ -493,8 +497,16 @@ fun CategoryEditorDialog(
         Spacer(Modifier.height(6.dp))
         IconSegmented(
             options = listOf(
-                IconOption(Kind.EXPENSE, "支出", Icons.Outlined.ArrowUpward),
-                IconOption(Kind.INCOME, "收入", Icons.Outlined.ArrowDownward),
+                IconOption(
+                    Kind.EXPENSE, "支出", Icons.Outlined.ArrowUpward,
+                    tint = colors.expense,
+                    tintSoft = colors.expense.copy(alpha = 0.13f),
+                ),
+                IconOption(
+                    Kind.INCOME, "收入", Icons.Outlined.ArrowDownward,
+                    tint = colors.income,
+                    tintSoft = colors.income.copy(alpha = 0.13f),
+                ),
                 IconOption("", "通用", Icons.Outlined.SwapHoriz),
             ),
             selected = kind,

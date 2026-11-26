@@ -535,7 +535,7 @@ fun EntryEditorScreen(
 
 /** 右上角的保存。金额没填时是灰的，按不动。 */
 @Composable
-private fun SaveChip(enabled: Boolean, onClick: () -> Unit) {
+internal fun SaveChip(enabled: Boolean, onClick: () -> Unit) {
     val colors = LocalPotColors.current
     val haptics = rememberHaptics()
     Box(

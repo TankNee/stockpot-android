@@ -22,6 +22,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Box
@@ -1346,12 +1347,18 @@ private fun RowScope.TabCell(item: PotTab, active: Boolean, onClick: () -> Unit)
         label = "tabTone",
     )
     val haptics = rememberHaptics()
+    // 选中态已经有一块跟着滑的胶囊，别再叠一层 ripple：
+    // 两个阴影叠在一起，点一下就糊成一团
+    val interaction = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
             .clip(PotBarShape)
-            .clickable {
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+            ) {
                 // 点当前 tab 不震，只有真的换了页才给一下
                 if (!active) haptics(Haptic.Tap)
                 onClick()

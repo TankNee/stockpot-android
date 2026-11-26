@@ -103,6 +103,26 @@ fun StockDetailScreen(
         return
     }
 
+    // 改成本 / 份额也是整页，和账户页里那个「添加持仓」同一个界面
+    if (editing) {
+        HoldingEditorScreen(
+            accountName = account.name,
+            existing = stock to holding,
+            quotes = quotes,
+            onBack = { editing = false },
+            onSave = { updated, costE4, shares ->
+                onSaveHolding(updated, costE4, shares)
+                editing = false
+            },
+            onDelete = { id ->
+                onRemoveHolding(id)
+                editing = false
+                onBack()
+            },
+        )
+        return
+    }
+
     val quote = quotes[stock.id]
     val isFund = stock.market == Market.FUND
     val priceE4 = quote?.priceE4?.takeIf { it > 0 } ?: holding.costE4
@@ -306,23 +326,6 @@ fun StockDetailScreen(
         }
     }
 
-    if (editing) {
-        HoldingEditorSheet(
-            accountName = account.name,
-            existing = stock to holding,
-            quotes = quotes,
-            onDismiss = { editing = false },
-            onSave = { updated, costE4, shares ->
-                onSaveHolding(updated, costE4, shares)
-                editing = false
-            },
-            onDelete = { id ->
-                onRemoveHolding(id)
-                editing = false
-                onBack()
-            },
-        )
-    }
 
     if (confirmRemove) {
         PotConfirmSheet(

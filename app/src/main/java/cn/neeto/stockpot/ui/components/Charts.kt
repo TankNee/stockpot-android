@@ -467,10 +467,22 @@ private fun CalendarCell(
                 fontWeight = if (isToday) FontWeight.SemiBold else FontWeight.Normal,
             )
             Spacer(Modifier.weight(1f))
+            // 金额带正负号：支出 -、收入 +，颜色跟着走，扫一眼就知道这天是花还是进
+            val net = day.income - day.expense
+            val amount = when {
+                net > 0 -> "+" + Fmt.compact(net)
+                net < 0 -> "-" + Fmt.compact(-net)
+                day.expense > 0 || day.income > 0 -> "0"
+                else -> ""
+            }
             Text(
-                text = if (day.expense > 0) Fmt.compact(day.expense) else "",
+                text = amount,
                 fontSize = 9.sp,
-                color = colors.ink2,
+                color = when {
+                    net > 0 -> colors.income
+                    net < 0 -> colors.expense
+                    else -> colors.ink3
+                },
                 maxLines = 1,
             )
         }
