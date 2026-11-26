@@ -1,6 +1,7 @@
 package cn.neeto.stockpot
 
 import android.app.Application
+import cn.neeto.stockpot.core.util.CrashLog
 import cn.neeto.stockpot.core.data.LedgerStore
 import cn.neeto.stockpot.core.net.ApiClient
 import cn.neeto.stockpot.core.net.SyncManager
@@ -40,6 +41,8 @@ class PotApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 最先装上：后面任何一步崩了都能留下堆栈
+        CrashLog.install(this)
         store = LedgerStore(this)
         settings = SettingsStore(this)
         auth = AuthStore(this)

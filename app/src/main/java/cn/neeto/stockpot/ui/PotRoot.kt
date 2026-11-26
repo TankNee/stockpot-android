@@ -112,6 +112,7 @@ import cn.neeto.stockpot.ui.components.EditorReveal
 import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.LocalRowAnchors
 import cn.neeto.stockpot.ui.components.LocalCategoryIcons
+import cn.neeto.stockpot.ui.components.effectiveIcon
 import cn.neeto.stockpot.ui.components.PotConfirmSheet
 import cn.neeto.stockpot.ui.components.RowAnchors
 import cn.neeto.stockpot.ui.components.rowAnchor
@@ -499,7 +500,7 @@ fun PotRoot(
     // 就会把整页重新组合一遍；换成 Column 之后只有布局重排，滚动不会掉帧。
     // 分类路径 → 图标：列表行（CategoryAvatar）拿不到账本，从这里查
     val categoryIcons = remember(ledger.categories) {
-        ledger.categories.associate { it.path to it.icon }
+        ledger.categories.associate { it.path to it.effectiveIcon() }
     }
     CompositionLocalProvider(
         LocalRowAnchors provides rowAnchors,

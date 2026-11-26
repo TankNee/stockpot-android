@@ -385,6 +385,29 @@ class LedgerTest {
     }
 
     @Test
+    fun `改名撞上已有分类就原样不动`() {
+        val ledger = emptyLedger()
+        val dinner = ledger.categories.first { it.path == "餐饮/晚餐" }
+        // 餐饮下面已经有「午餐」，改叫午餐会撞上
+        val same = LedgerOps.renameCategory(ledger, dinner, "午餐", "餐饮", "expense")
+        assertEquals(ledger.categories, same.categories)
+
+        // 换个不撞的名字照常改
+        val moved = LedgerOps.renameCategory(ledger, dinner, "夜宵", "餐饮", "expense")
+        assertNotNull(moved.categories.firstOrNull { it.path == "餐饮/夜宵" })
+    }
+
+    @Test
+    fun `分类树按路径去重，同名分组只出现一次`() {
+        val ledger = emptyLedger()
+        val dup = ledger.copy(
+            categories = ledger.categories + ledger.categories.first { it.path == "餐饮" },
+        )
+        val tree = dup.categoryTree()
+        assertEquals(1, tree.count { it.first.path == "餐饮" })
+    }
+
+    @Test
     fun `改分类时能换图标，不传就保留原来那个`() {
         var ledger = emptyLedger()
         ledger = ledger.copy(

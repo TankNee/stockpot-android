@@ -54,6 +54,7 @@ import cn.neeto.stockpot.core.model.builtinIcon
 import cn.neeto.stockpot.ui.components.CategoryGlyph
 import cn.neeto.stockpot.ui.components.CategoryIconGrid
 import cn.neeto.stockpot.ui.components.categoryIcon
+import cn.neeto.stockpot.ui.components.effectiveIcon
 import cn.neeto.stockpot.core.model.Ledger
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -159,7 +160,9 @@ fun CategoriesScreen(
         }
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            // 上面还有顶栏和搜索框，用 weight 才拿得到「剩下的」高度；
+            // fillMaxSize 会按整屏算，列表底部被顶出可见区域
+            modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = overlayBottomPadding() + 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -276,8 +279,8 @@ private fun GroupRow(
         )
         Spacer(Modifier.width(8.dp))
         Box(Modifier.width(18.dp), contentAlignment = Alignment.Center) {
-            if (categoryIcon(group.icon) != null) {
-                CategoryGlyph(group.icon, size = 17.dp, tint = colors.brand)
+            if (categoryIcon(group.effectiveIcon()) != null) {
+                CategoryGlyph(group.effectiveIcon(), size = 17.dp, tint = colors.brand)
             } else {
                 Box(
                     Modifier
@@ -341,8 +344,8 @@ private fun ChildRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(16.dp), contentAlignment = Alignment.Center) {
-            if (categoryIcon(child.icon) != null) {
-                CategoryGlyph(child.icon, size = 15.dp, tint = colors.ink3)
+            if (categoryIcon(child.effectiveIcon()) != null) {
+                CategoryGlyph(child.effectiveIcon(), size = 15.dp, tint = colors.ink3)
             } else {
                 Box(
                     Modifier

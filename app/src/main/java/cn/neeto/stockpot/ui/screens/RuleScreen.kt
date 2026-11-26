@@ -101,7 +101,8 @@ fun RulesScreen(
         }
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            // 顶栏和搜索框占掉一部分，剩下的高度才是列表的
+            modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = overlayBottomPadding() + 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {

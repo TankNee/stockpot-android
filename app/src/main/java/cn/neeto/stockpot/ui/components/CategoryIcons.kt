@@ -159,6 +159,13 @@ private val LABELS: Map<String, String> = mapOf(
 
 val CATEGORY_ICON_KEYS: List<String> = ICONS.keys.toList()
 
+/**
+ * 一条分类实际该画哪个图标：自己配了就用，没配按名字猜。
+ * 老账本里 icon 基本都空着，靠这层兜底才不会满屏一个样。
+ */
+fun cn.neeto.stockpot.core.model.CategoryDef.effectiveIcon(): String =
+    icon.ifEmpty { cn.neeto.stockpot.core.model.builtinIcon(name) }
+
 /** 未知 key 返回 null，界面自己决定退回文字。 */
 fun categoryIcon(key: String): ImageVector? = ICONS[key]
 

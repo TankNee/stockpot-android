@@ -194,10 +194,21 @@ data class Ledger(
         if (entry.projectId.isEmpty()) null else projects.firstOrNull { it.id == entry.projectId }
 
     /** 分类树：支出分组在前、通用居中、收入最后，叶子跟在父级后面。 */
-    fun categoryTree(): List<Pair<CategoryDef, List<CategoryDef>>> =
-        categories.filter { it.parent.isEmpty() }
+    /**
+     * 两层分类树。按 path 去重：同步/导入或者桌面端改名撞车时，账本里可能出现
+     * 两个同名分组；列表用 path 当 key，重复一条就会让 LazyColumn 抛
+     * 「Key was already used」直接崩，所以这里先兜住。
+     */
+    fun categoryTree(): List<Pair<CategoryDef, List<CategoryDef>>> {
+        val seen = HashSet<String>()
+        val groups = categories
+            .filter { it.parent.isEmpty() }
+            .filter { seen.add(it.path) }
             .sortedBy { def -> when (def.kind) { Kind.EXPENSE -> 0; "" -> 1; else -> 2 } }
-            .map { group -> group to categories.filter { it.parent == group.name } }
+        return groups.map { group ->
+            group to categories.filter { it.parent == group.name }.distinctBy { it.path }
+        }
+    }
 
     companion object {
         const val SCHEMA_VERSION = 4

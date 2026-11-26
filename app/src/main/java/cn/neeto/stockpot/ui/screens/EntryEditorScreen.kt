@@ -1,5 +1,7 @@
 package cn.neeto.stockpot.ui.screens
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +23,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -60,6 +64,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
@@ -78,6 +83,8 @@ import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Project
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.LinkOff
+import cn.neeto.stockpot.ui.components.CategoryGlyph
+import cn.neeto.stockpot.ui.components.effectiveIcon
 import cn.neeto.stockpot.ui.components.IconSegmented
 import cn.neeto.stockpot.ui.components.IconOption
 import cn.neeto.stockpot.ui.components.PotPillButton
@@ -322,8 +329,13 @@ fun EntryEditorScreen(
                     .padding(horizontal = 14.dp, vertical = 13.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val picked = ledger.categories.firstOrNull { it.path == category }
+                if (picked != null) {
+                    CategoryGlyph(picked.effectiveIcon(), size = 17.dp, tint = colors.brand)
+                    Spacer(Modifier.width(9.dp))
+                }
                 Text(
-                    text = category.ifEmpty { "选择分类" },
+                    text = category.replace("/", " · ").ifEmpty { "选择分类" },
                     color = if (category.isEmpty()) colors.ink3 else colors.ink,
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f),
@@ -1013,7 +1025,13 @@ private fun PlainField(
     )
 }
 
-/** 分类选择：按树展示，也能现场新建一个。 */
+/**
+ * 分类选择：树状、可折叠、带图标，也能现场新建一个。
+ *
+ * 原来是一张平铺的缩进列表：分类一多就得一路滑，还看不出哪条是哪个分组的。
+ * 现在分组行左边那个箭头单独管折叠（点名字仍然是选中），分组和子分类都画图标。
+ * 搜索时强制展开，命中哪个分组就直接铺出来。
+ */
 @Composable
 fun CategoryPickerDialog(
     ledger: Ledger,
@@ -1026,6 +1044,8 @@ fun CategoryPickerDialog(
     val colors = LocalPotColors.current
     var query by remember { mutableStateOf("") }
     var newName by remember { mutableStateOf("") }
+    // 默认全展开；分类多的人自己收起来，选择页记住这一次的折叠状态就够了
+    var collapsed by remember { mutableStateOf(setOf<String>()) }
 
     val tree = remember(ledger.categories, kind, query) {
         ledger.categoryTree()
@@ -1041,16 +1061,55 @@ fun CategoryPickerDialog(
                 query.isEmpty() || (g != null && group.name.contains(query)) || children.isNotEmpty()
             }
     }
+    val searching = query.isNotEmpty()
+
+    // LazyColumn 的 items 不能嵌套，先把树摊平成一行一个的描述
+    val rows = remember(tree, collapsed, searching) {
+        buildList {
+            tree.forEach { (group, groupDef, children) ->
+                val open = searching || group.name !in collapsed
+                add(PickerRow.Group(group, groupDef != null, open, children.size))
+                if (open) children.forEach { add(PickerRow.Child(it)) }
+            }
+        }
+    }
 
     PotSheet(onDismiss = onDismiss) {
-        Text("选择分类", style = MaterialTheme.typography.titleLarge, color = colors.ink)
-        Spacer(Modifier.height(12.dp))
-        Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("选择分类", style = MaterialTheme.typography.titleLarge, color = colors.ink)
+            Spacer(Modifier.weight(1f))
+            Text(
+                "${tree.size} 个分组",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.ink3,
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        TextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("搜索分类", color = colors.ink3, fontSize = 14.sp) },
+            singleLine = true,
+            shape = RoundedCornerShape(10.dp),
+            textStyle = MaterialTheme.typography.bodySmall,
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = colors.panel2,
+                unfocusedContainerColor = colors.panel2,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                cursorColor = colors.brand,
+            ),
+        )
+
+        if (onAddCategory != null) {
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 TextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("搜索分类", color = colors.ink3, fontSize = 14.sp) },
+                    value = newName,
+                    onValueChange = { newName = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("新建分类", color = colors.ink3, fontSize = 14.sp) },
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
                     textStyle = MaterialTheme.typography.bodySmall,
@@ -1062,84 +1121,182 @@ fun CategoryPickerDialog(
                         cursorColor = colors.brand,
                     ),
                 )
-                Spacer(Modifier.height(8.dp))
-                Column(
-                    modifier = Modifier
-                        .height(340.dp)
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    tree.forEach { (group, groupDef, children) ->
-                        val groupSelected = selected == group.path
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(if (groupSelected) colors.brandTint else Color.Transparent)
-                                .clickable(enabled = groupDef != null) { onPick(group.path) }
-                                .padding(horizontal = 10.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = group.name,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (groupDef != null) colors.ink else colors.ink3,
-                                fontWeight = FontWeight.Medium,
-                            )
+                Spacer(Modifier.width(8.dp))
+                PotPillButton(
+                    text = "添加",
+                    icon = Icons.Outlined.Add,
+                    enabled = newName.isNotBlank(),
+                    onClick = {
+                        val name = newName.trim()
+                        onAddCategory(name)
+                        onPick(name)
+                    },
+                )
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+        if (rows.isEmpty()) {
+            Text(
+                if (searching) "没有叫「$query」的分类" else "还没有分类",
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.ink3,
+                modifier = Modifier.padding(vertical = 28.dp),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                items(
+                    items = rows,
+                    // 分组路径和子分类路径不会重（categoryTree 已经按 path 去过重），
+                    // 前缀分开是防止同名分组/子分类撞上
+                    key = { row ->
+                        when (row) {
+                            is PickerRow.Group -> "g:" + row.def.path
+                            is PickerRow.Child -> "c:" + row.def.path
                         }
-                        children.forEach { child ->
-                            val active = selected == child.path
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(9.dp))
-                                    .background(if (active) colors.brandTint else Color.Transparent)
-                                    .clickable { onPick(child.path) }
-                                    .padding(start = 26.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = child.name,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (active) colors.brandInk else colors.ink2,
-                                )
-                            }
-                        }
-                    }
-                    if (onAddCategory != null) {
-                        Spacer(Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextField(
-                                value = newName,
-                                onValueChange = { newName = it },
-                                modifier = Modifier.weight(1f),
-                                placeholder = { Text("新建分类", color = colors.ink3, fontSize = 14.sp) },
-                                singleLine = true,
-                                shape = RoundedCornerShape(10.dp),
-                                textStyle = MaterialTheme.typography.bodySmall,
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = colors.panel2,
-                                    unfocusedContainerColor = colors.panel2,
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent,
-                                    cursorColor = colors.brand,
-                                ),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            PotPillButton(
-                                text = "添加",
-                                icon = Icons.Outlined.Add,
-                                enabled = newName.isNotBlank(),
-                                onClick = {
-                                    val name = newName.trim()
-                                    onAddCategory(name)
-                                    onPick(name)
-                                },
-                            )
-                        }
+                    },
+                ) { row ->
+                    when (row) {
+                        is PickerRow.Group -> PickerGroupRow(
+                            group = row.def,
+                            selectable = row.selectable,
+                            open = row.open,
+                            childCount = row.childCount,
+                            active = selected == row.def.path,
+                            onToggle = {
+                                collapsed = if (row.def.name in collapsed) {
+                                    collapsed - row.def.name
+                                } else {
+                                    collapsed + row.def.name
+                                }
+                            },
+                            onPick = { onPick(row.def.path) },
+                        )
+                        is PickerRow.Child -> PickerChildRow(
+                            child = row.def,
+                            active = selected == row.def.path,
+                            onPick = { onPick(row.def.path) },
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+private sealed interface PickerRow {
+    data class Group(
+        val def: CategoryDef,
+        val selectable: Boolean,
+        val open: Boolean,
+        val childCount: Int,
+    ) : PickerRow
+
+    data class Child(val def: CategoryDef) : PickerRow
+}
+
+@Composable
+private fun PickerGroupRow(
+    group: CategoryDef,
+    selectable: Boolean,
+    open: Boolean,
+    childCount: Int,
+    active: Boolean,
+    onToggle: () -> Unit,
+    onPick: () -> Unit,
+) {
+    val colors = LocalPotColors.current
+    val angle by animateFloatAsState(if (open) 90f else 0f, tween(180), label = "picker-chevron")
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (active) colors.brandTint else Color.Transparent)
+            .clickable(enabled = selectable) { onPick() }
+            .padding(end = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 箭头只管折叠，点名字才是选中
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .clickable { onToggle() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Outlined.ChevronRight,
+                contentDescription = if (open) "收起" else "展开",
+                tint = colors.ink3,
+                modifier = Modifier.size(17.dp).rotate(angle),
+            )
+        }
+        CategoryGlyph(
+            key = group.effectiveIcon(),
+            size = 18.dp,
+            tint = if (active) colors.brandInk else colors.brand,
+        )
+        Spacer(Modifier.width(9.dp))
+        Text(
+            text = group.name,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = if (selectable) colors.ink else colors.ink3,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (active) {
+            Icon(Icons.Outlined.Check, contentDescription = "已选", tint = colors.brandInk, modifier = Modifier.size(16.dp))
+        } else {
+            Text(
+                "$childCount",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.ink3,
+            )
+        }
+        Spacer(Modifier.width(6.dp))
+    }
+}
+
+@Composable
+private fun PickerChildRow(
+    child: CategoryDef,
+    active: Boolean,
+    onPick: () -> Unit,
+) {
+    val colors = LocalPotColors.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (active) colors.brandTint else Color.Transparent)
+            .clickable { onPick() }
+            .padding(start = 40.dp, end = 10.dp, top = 9.dp, bottom = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CategoryGlyph(
+            key = child.effectiveIcon(),
+            size = 16.dp,
+            tint = if (active) colors.brandInk else colors.ink3,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = child.name,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (active) colors.brandInk else colors.ink2,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (active) {
+            Icon(Icons.Outlined.Check, contentDescription = "已选", tint = colors.brandInk, modifier = Modifier.size(15.dp))
+        }
+    }
 }
 
 /**

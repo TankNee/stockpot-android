@@ -470,6 +470,13 @@ object LedgerOps {
         val newParent = if (old.parent.isEmpty()) "" else parent
         val oldPath = old.path
         val newPath = if (newParent.isEmpty()) clean else "$newParent/$clean"
+        // 改名撞上已有分类就不动：两个同名同级分类会让列表 key 重复，
+        // LazyColumn 滑到第二条会直接抛异常崩掉（桌面端也从源头拦了）
+        if (newPath != oldPath &&
+            ledger.categories.any { it.name == clean && it.parent == newParent }
+        ) {
+            return ledger
+        }
         val categories = ledger.categories.map { def ->
             when {
                 def.parent == old.parent && def.name == old.name ->
