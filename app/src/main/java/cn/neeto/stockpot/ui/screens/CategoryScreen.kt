@@ -4,6 +4,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,6 +50,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.neeto.stockpot.core.model.CategoryDef
 import cn.neeto.stockpot.core.model.Kind
+import cn.neeto.stockpot.core.model.builtinIcon
+import cn.neeto.stockpot.ui.components.CategoryGlyph
+import cn.neeto.stockpot.ui.components.CategoryIconGrid
+import cn.neeto.stockpot.ui.components.categoryIcon
 import cn.neeto.stockpot.core.model.Ledger
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -79,8 +85,8 @@ import cn.neeto.stockpot.ui.theme.LocalPotColors
 fun CategoriesScreen(
     ledger: Ledger,
     onBack: () -> Unit,
-    onAdd: (name: String, parent: String, kind: String) -> Unit,
-    onUpdate: (CategoryDef, String, String, String) -> Unit,
+    onAdd: (name: String, parent: String, kind: String, icon: String) -> Unit,
+    onUpdate: (CategoryDef, String, String, String, String) -> Unit,
     onDelete: (CategoryDef) -> Unit,
 ) {
     val colors = LocalPotColors.current
@@ -211,9 +217,9 @@ fun CategoriesScreen(
                 adding = false
                 editing = null
             },
-            onSave = { name, parent, kind ->
+            onSave = { name, parent, kind, icon ->
                 val target = editing
-                if (target == null) onAdd(name, parent, kind) else onUpdate(target, name, parent, kind)
+                if (target == null) onAdd(name, parent, kind, icon) else onUpdate(target, name, parent, kind, icon)
                 adding = false
                 editing = null
             },
@@ -269,13 +275,19 @@ private fun GroupRow(
                 .rotate(angle),
         )
         Spacer(Modifier.width(8.dp))
-        Box(
-            Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(colors.brand),
-        )
-        Spacer(Modifier.width(9.dp))
+        Box(Modifier.width(18.dp), contentAlignment = Alignment.Center) {
+            if (categoryIcon(group.icon) != null) {
+                CategoryGlyph(group.icon, size = 17.dp, tint = colors.brand)
+            } else {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(colors.brand),
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
         Text(
             group.name,
             style = MaterialTheme.typography.bodyMedium,
@@ -328,13 +340,19 @@ private fun ChildRow(
             .padding(start = 32.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .size(5.dp)
-                .clip(CircleShape)
-                .background(colors.lineStrong),
-        )
-        Spacer(Modifier.width(10.dp))
+        Box(Modifier.width(16.dp), contentAlignment = Alignment.Center) {
+            if (categoryIcon(child.icon) != null) {
+                CategoryGlyph(child.icon, size = 15.dp, tint = colors.ink3)
+            } else {
+                Box(
+                    Modifier
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(colors.lineStrong),
+                )
+            }
+        }
+        Spacer(Modifier.width(9.dp))
         Text(
             child.name,
             style = MaterialTheme.typography.bodyMedium,
@@ -416,7 +434,7 @@ fun CategoryEditorDialog(
     ledger: Ledger,
     existing: CategoryDef?,
     onDismiss: () -> Unit,
-    onSave: (name: String, parent: String, kind: String) -> Unit,
+    onSave: (name: String, parent: String, kind: String, icon: String) -> Unit,
     initialParent: String = "",
 ) {
     val colors = LocalPotColors.current
@@ -425,9 +443,15 @@ fun CategoryEditorDialog(
     var kind by remember(existing?.path) {
         mutableStateOf(existing?.kind ?: Kind.EXPENSE)
     }
+    // 已有的分类拿它自己的图标；没有就跟着默认映射走，网格里能看出「不选会是什么」
+    var icon by remember(existing?.path) {
+        mutableStateOf(existing?.icon?.ifEmpty { builtinIcon(existing.name) } ?: "")
+    }
     val groups = ledger.categories.filter { it.parent.isEmpty() && it.name != existing?.name }
 
     PotSheet(onDismiss = onDismiss) {
+      // 多了图标网格，小屏上一屏放不下，弹层内容自己滚
+      Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
         Text(
             if (existing == null) "新建分类" else "编辑分类",
             style = MaterialTheme.typography.titleLarge,
@@ -471,12 +495,23 @@ fun CategoryEditorDialog(
             onSelect = { kind = it },
             modifier = Modifier.fillMaxWidth(),
         )
+        Spacer(Modifier.height(12.dp))
+        Text("图标", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+        Spacer(Modifier.height(6.dp))
+        CategoryIconGrid(selected = icon, onSelect = { icon = it })
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "不选也行，会按分类名自动配一个。",
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.ink3,
+        )
         SheetActions(
             confirmText = "保存",
             enabled = name.isNotBlank(),
             danger = false,
-            onConfirm = { onSave(name.trim(), parent, kind) },
+            onConfirm = { onSave(name.trim(), parent, kind, icon) },
             onCancel = onDismiss,
         )
+      }
     }
 }

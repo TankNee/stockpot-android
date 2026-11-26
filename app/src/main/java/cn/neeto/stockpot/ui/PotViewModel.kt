@@ -277,12 +277,18 @@ class PotViewModel(app: Application) : AndroidViewModel(app) {
 
     /* ------------------------------ 分类 ------------------------------ */
 
-    fun addCategory(name: String, parent: String, kind: String) = store.update {
-        it.copy(categories = LedgerOps.addCategory(it.categories, name, parent, kind))
+    fun addCategory(name: String, parent: String, kind: String, icon: String = "") = store.update {
+        it.copy(categories = LedgerOps.addCategory(it.categories, name, parent, kind, icon))
     }
 
-    fun updateCategory(old: CategoryDef, name: String, parent: String, kind: String) = store.update {
-        LedgerOps.renameCategory(it, old, name, parent, kind)
+    fun updateCategory(
+        old: CategoryDef,
+        name: String,
+        parent: String,
+        kind: String,
+        icon: String = "",
+    ) = store.update {
+        LedgerOps.renameCategory(it, old, name, parent, kind, icon)
     }
 
     fun deleteCategory(def: CategoryDef) = store.update { LedgerOps.deleteCategory(it, def) }

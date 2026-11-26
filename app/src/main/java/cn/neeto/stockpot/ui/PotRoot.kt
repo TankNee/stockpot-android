@@ -111,6 +111,7 @@ import cn.neeto.stockpot.ui.components.EditorAnim
 import cn.neeto.stockpot.ui.components.EditorReveal
 import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.LocalRowAnchors
+import cn.neeto.stockpot.ui.components.LocalCategoryIcons
 import cn.neeto.stockpot.ui.components.PotConfirmSheet
 import cn.neeto.stockpot.ui.components.RowAnchors
 import cn.neeto.stockpot.ui.components.rowAnchor
@@ -496,7 +497,14 @@ fun PotRoot(
 
     // 不用 Scaffold：顶栏高度会跟着滚动一小段一小段地变，Scaffold 的 innerPadding 一变
     // 就会把整页重新组合一遍；换成 Column 之后只有布局重排，滚动不会掉帧。
-    CompositionLocalProvider(LocalRowAnchors provides rowAnchors) {
+    // 分类路径 → 图标：列表行（CategoryAvatar）拿不到账本，从这里查
+    val categoryIcons = remember(ledger.categories) {
+        ledger.categories.associate { it.path to it.icon }
+    }
+    CompositionLocalProvider(
+        LocalRowAnchors provides rowAnchors,
+        LocalCategoryIcons provides categoryIcons,
+    ) {
         Box(Modifier.fillMaxSize().background(colors.canvas)) {
             Box(
                 Modifier
@@ -648,9 +656,11 @@ fun PotRoot(
                                     current == ROUTE_CATEGORIES -> CategoriesScreen(
                                         ledger = ledger,
                                         onBack = { popOverlay() },
-                                        onAdd = { name, parent, kind -> vm.addCategory(name, parent, kind) },
-                                        onUpdate = { def, name, parent, kind ->
-                                            vm.updateCategory(def, name, parent, kind)
+                                        onAdd = { name, parent, kind, icon ->
+                                            vm.addCategory(name, parent, kind, icon)
+                                        },
+                                        onUpdate = { def, name, parent, kind, icon ->
+                                            vm.updateCategory(def, name, parent, kind, icon)
                                             toast = "分类已更新"
                                         },
                                         onDelete = { def -> vm.deleteCategory(def) },

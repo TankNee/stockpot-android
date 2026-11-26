@@ -432,7 +432,13 @@ object LedgerOps {
         return next
     }
 
-    fun addCategory(categories: List<CategoryDef>, name: String, parent: String, kind: String): List<CategoryDef> {
+    fun addCategory(
+        categories: List<CategoryDef>,
+        name: String,
+        parent: String,
+        kind: String,
+        icon: String = "",
+    ): List<CategoryDef> {
         val clean = name.trim()
         if (clean.isEmpty()) return categories
         if (categories.any { it.name == clean && it.parent == parent }) return categories
@@ -444,12 +450,20 @@ object LedgerOps {
             name = clean,
             parent = parent,
             kind = kind,
-            icon = builtinIcon(parent.ifEmpty { clean }),
+            // 用户挑了图标就用他挑的，没挑按分类名兜一个
+            icon = icon.ifEmpty { builtinIcon(parent.ifEmpty { clean }) },
         )
     }
 
     /** 改名/换父级时把账目和规则里的路径一起改掉，图表和筛选才不会指向不存在的分类。 */
-    fun renameCategory(ledger: Ledger, old: CategoryDef, name: String, parent: String, kind: String): Ledger {
+    fun renameCategory(
+        ledger: Ledger,
+        old: CategoryDef,
+        name: String,
+        parent: String,
+        kind: String,
+        icon: String = "",
+    ): Ledger {
         val clean = name.trim()
         if (clean.isEmpty()) return ledger
         // 只允许两层：分组永远在顶层，子分类可以换分组
@@ -463,7 +477,7 @@ object LedgerOps {
                         name = clean,
                         parent = newParent,
                         kind = kind.ifEmpty { def.kind },
-                        icon = def.icon.ifEmpty { builtinIcon(clean) },
+                        icon = icon.ifEmpty { def.icon.ifEmpty { builtinIcon(clean) } },
                     )
                 old.parent.isEmpty() && def.parent == old.name ->
                     def.copy(parent = clean, kind = kind.ifEmpty { def.kind })

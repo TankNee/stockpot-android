@@ -375,6 +375,33 @@ class LedgerTest {
     }
 
     @Test
+    fun `新建分类可以指定图标，不指定就按分类名兜一个`() {
+        val picked = LedgerOps.addCategory(emptyLedger().categories, "猫粮", "宠物", "expense", "pet")
+        assertEquals("pet", picked.first { it.path == "宠物/猫粮" }.icon)
+
+        // 没指定时跟着分组走（宠物 → pet），和界面上的默认显示一致
+        val auto = LedgerOps.addCategory(emptyLedger().categories, "猫粮", "宠物", "expense")
+        assertEquals("pet", auto.first { it.path == "宠物/猫粮" }.icon)
+    }
+
+    @Test
+    fun `改分类时能换图标，不传就保留原来那个`() {
+        var ledger = emptyLedger()
+        ledger = ledger.copy(
+            categories = ledger.categories.map {
+                if (it.path == "餐饮/咖啡") it.copy(icon = "coffee") else it
+            },
+        )
+        val coffee = ledger.categories.first { it.path == "餐饮/咖啡" }
+
+        val kept = LedgerOps.renameCategory(ledger, coffee, "拿铁", "餐饮", "expense")
+        assertEquals("coffee", kept.categories.first { it.path == "餐饮/拿铁" }.icon)
+
+        val changed = LedgerOps.renameCategory(ledger, coffee, "拿铁", "餐饮", "expense", "drink")
+        assertEquals("drink", changed.categories.first { it.path == "餐饮/拿铁" }.icon)
+    }
+
+    @Test
     fun `renaming a group moves its entries and rules`() {
         var ledger = emptyLedger()
         ledger = LedgerOps.withEntry(

@@ -245,12 +245,18 @@ fun CategoryAvatar(
             .background(color.copy(alpha = 0.14f)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = key.take(1),
-            fontSize = (size * 0.42f).sp,
-            fontWeight = FontWeight.Medium,
-            color = color,
-        )
+        // 分类配了图标就画图标，同色系、同底色；没配就退回首字
+        val iconKey = LocalCategoryIcons.current[name].orEmpty()
+        if (categoryIcon(iconKey) != null) {
+            CategoryGlyph(iconKey, size = (size * 0.52f).dp, tint = color)
+        } else {
+            Text(
+                text = key.take(1),
+                fontSize = (size * 0.42f).sp,
+                fontWeight = FontWeight.Medium,
+                color = color,
+            )
+        }
     }
 }
 
