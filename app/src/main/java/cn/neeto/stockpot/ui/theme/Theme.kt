@@ -457,6 +457,15 @@ val PotShapes = Shapes(
 )
 
 /**
+ * 「一块」的圆角：卡片、日期分块、列表里的成组内容都用这一个。
+ *
+ * 以前各处各写一个数（12、14、18 混着来），同一屏里两个块挨着就能看出圆得不一样。
+ * 要改圆的幅度只改这里，别在调用点再写死。
+ */
+val PotCardRadius = 18.dp
+val PotCardShape = androidx.compose.foundation.shape.RoundedCornerShape(PotCardRadius)
+
+/**
  * 金额字体：Barlow（DIN 那一挂的窄体几何无衬线，银行、票据上的数字长这样）。
  * 数字是 tabular 的，位数变化不会让整行左右跳；行高给得紧一点，大金额不至于把卡片撑开。
  * 只有拉丁数字和符号走这套，中文还是系统字 —— Barlow 里没有汉字。

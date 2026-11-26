@@ -107,6 +107,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.platform.LocalContext
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.PotPalette
+import cn.neeto.stockpot.ui.theme.PotCardShape
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -399,7 +400,7 @@ private fun AccountEntry(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(PotCardShape)
             .background(colors.panel)
             .clickable { onOpen() }
             .padding(horizontal = 16.dp, vertical = 15.dp),

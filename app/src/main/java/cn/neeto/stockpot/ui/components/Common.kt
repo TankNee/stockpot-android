@@ -62,6 +62,7 @@ import cn.neeto.stockpot.core.data.Fmt
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
+import cn.neeto.stockpot.ui.theme.PotCardShape
 
 /**
  * 二级页面（叠加页）的列表底部留白。
@@ -82,7 +83,7 @@ fun PotCard(
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     val colors = LocalPotColors.current
-    val shape = RoundedCornerShape(18.dp)
+    val shape = PotCardShape
     // 不点的时候只画圆角背景，不做 clip：clip 会为整张卡建一个图层，列表滑动时每帧都要还这笔账
     val base = modifier
         .fillMaxWidth()

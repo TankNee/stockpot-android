@@ -91,6 +91,7 @@ import cn.neeto.stockpot.ui.components.SheetField
 import cn.neeto.stockpot.ui.components.SheetGrabber
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
+import cn.neeto.stockpot.ui.theme.PotCardShape
 import java.time.LocalDate
 
 /**
@@ -268,16 +269,12 @@ fun EntriesScreen(
                         )
                     }
                 }
-                items(split.thisMonth, key = { it.id }, contentType = { "entry" }) { entry ->
-                    Box(Modifier.background(colors.panel)) {
-                        EntryRow(
-                            entry = entry,
-                            showDateTime = true,
-                            onClick = { onOpenEntry(entry) },
-                            onLongClick = { onLongPressEntry(entry) },
-                        )
-                    }
-                }
+                searchDayCards(
+                    keyPrefix = "this",
+                    entries = split.thisMonth,
+                    onOpenEntry = onOpenEntry,
+                    onLongPress = onLongPressEntry,
+                )
                 if (split.others.isNotEmpty()) {
                     item(key = "search-others") {
                         SearchSectionLabel(
@@ -286,21 +283,18 @@ fun EntriesScreen(
                             topLine = true,
                         )
                     }
-                    items(split.others, key = { it.id }, contentType = { "entry" }) { entry ->
-                        Box(Modifier.background(colors.panel)) {
-                            EntryRow(
-                                entry = entry,
-                                showDateTime = true,
-                                onClick = { onOpenEntry(entry) },
-                                onLongClick = { onLongPressEntry(entry) },
-                            )
-                        }
-                    }
+                    searchDayCards(
+                        keyPrefix = "other",
+                        entries = split.others,
+                        onOpenEntry = onOpenEntry,
+                        onLongPress = onLongPressEntry,
+                    )
                 }
                 item(key = "tail") { Spacer(Modifier.height(6.dp)) }
             } else if (byAmount) {
+                // 按金额排不能按天分块（顺序会乱），一行一张卡，行与行之间留缝
                 items(entries, key = { it.id }, contentType = { "entry" }) { entry ->
-                    Box(Modifier.background(colors.panel)) {
+                    SingleEntryCard {
                         EntryRow(
                             entry = entry,
                             showDate = true,
@@ -319,16 +313,14 @@ fun EntriesScreen(
                     item(key = "day-$date") {
                         DayHeader(date = date, expense = expense, income = income)
                     }
-                    items(dayEntries, key = { it.id }, contentType = { "entry" }) { entry ->
-                        Box(Modifier.background(colors.panel)) {
-                            EntryRow(
-                                entry = entry,
-                                onClick = { onOpenEntry(entry) },
-                                onLongClick = { onLongPressEntry(entry) },
-                            )
-                        }
+                    item(key = "card-$date", contentType = "day-card") {
+                        DayCard(
+                            entries = dayEntries,
+                            onOpenEntry = onOpenEntry,
+                            onLongPress = onLongPressEntry,
+                        )
                     }
-                    item(key = "gap-$date") { Spacer(Modifier.height(6.dp)) }
+                    item(key = "gap-$date") { Spacer(Modifier.height(4.dp)) }
                 }
             }
                 }
@@ -897,6 +889,87 @@ private fun presetOf(filter: EntryFilter): String {
         from == LocalDate.parse(today).minusDays(29).toString() && to == today -> "30d"
         from == today.take(8) + "01" && to == today -> "thisMonth"
         else -> "custom"
+    }
+}
+
+/* ------------------------------ 一天一块 ------------------------------ */
+
+/**
+ * 一天的流水收成一个块：左右留边距、四角圆起来，行与行之间一条不顶到边的细线。
+ *
+ * 以前每行自己铺一条满宽的底色，一屏看下去是一整张糊满的纸，
+ * 也分不清哪儿换了一天。收成块之后「这一天」是一个整体，块和块之间自然断开。
+ *
+ * 圆角走 [PotCardShape]：总览、资产那些卡片是同一个数，不再各写各的。
+ */
+@Composable
+private fun DayCard(
+    entries: List<Entry>,
+    onOpenEntry: (Entry) -> Unit,
+    onLongPress: (Entry) -> Unit,
+    /** 搜索结果用：块头没有日期标题，每行右侧自己交代「11-26 09:05」。 */
+    showDateTime: Boolean = false,
+) {
+    val colors = LocalPotColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            // 先 clip 再铺底色：点了之后的水波纹也被圆角收住，不会溢出到块外面
+            .clip(PotCardShape)
+            .background(colors.panel),
+    ) {
+        entries.forEachIndexed { index, entry ->
+            if (index > 0) {
+                // 细线从文字起始处画起（16 边距 + 38 头像 + 12 间距），缩在头像右边
+                Hairline(Modifier.padding(start = 66.dp, end = 16.dp))
+            }
+            EntryRow(
+                entry = entry,
+                showDateTime = showDateTime,
+                onClick = { onOpenEntry(entry) },
+                onLongClick = { onLongPress(entry) },
+            )
+        }
+    }
+}
+
+/** 单独一张卡的流水：按金额排的时候用，一行一笔，行与行之间留一条缝。 */
+@Composable
+private fun SingleEntryCard(content: @Composable () -> Unit) {
+    val colors = LocalPotColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 3.dp)
+            .clip(PotCardShape)
+            .background(colors.panel),
+    ) {
+        content()
+    }
+}
+
+/**
+ * 搜索结果按天收块。搜索是跨月的平铺列表，一行一张卡太碎，
+ * 收成一天一块才像流水；行右侧仍然写着具体日期时间，跨天不会看漏。
+ */
+private fun androidx.compose.foundation.lazy.LazyListScope.searchDayCards(
+    keyPrefix: String,
+    entries: List<Entry>,
+    onOpenEntry: (Entry) -> Unit,
+    onLongPress: (Entry) -> Unit,
+) {
+    entries.groupBy { it.date }.forEach { (date, dayEntries) ->
+        item(key = "$keyPrefix-$date", contentType = "day-card") {
+            DayCard(
+                entries = dayEntries,
+                onOpenEntry = onOpenEntry,
+                onLongPress = onLongPress,
+                showDateTime = true,
+            )
+        }
+        // 搜索结果没有日期小标题顶着，两块之间要留一条缝，不然两个圆角挨在一起像一块被咬了一口
+        item(key = "$keyPrefix-gap-$date") { Spacer(Modifier.height(8.dp)) }
     }
 }
 

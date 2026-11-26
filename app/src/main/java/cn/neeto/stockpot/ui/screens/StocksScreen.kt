@@ -89,6 +89,7 @@ import cn.neeto.stockpot.ui.components.Sparkline
 import cn.neeto.stockpot.ui.components.overlayBottomPadding
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
+import cn.neeto.stockpot.ui.theme.PotCardShape
 import kotlin.math.abs
 import kotlin.math.roundToLong
 
@@ -514,7 +515,7 @@ fun StockAccountScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(PotCardShape)
                             .background(colors.panel)
                             .combinedClickable(
                                 onClick = { onOpenStock(line.stock.id) },

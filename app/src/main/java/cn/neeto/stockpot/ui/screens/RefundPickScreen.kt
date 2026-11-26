@@ -61,6 +61,7 @@ import cn.neeto.stockpot.ui.components.PotPillButton
 import cn.neeto.stockpot.ui.components.overlayBottomPadding
 import cn.neeto.stockpot.ui.components.rememberHaptics
 import cn.neeto.stockpot.ui.theme.LocalPotColors
+import cn.neeto.stockpot.ui.theme.PotCardShape
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
@@ -278,7 +279,7 @@ private fun CurrentCard(entry: Entry, isExpense: Boolean) {
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(PotCardShape)
             .background(colors.panel)
             .padding(horizontal = 14.dp, vertical = 11.dp),
     ) {

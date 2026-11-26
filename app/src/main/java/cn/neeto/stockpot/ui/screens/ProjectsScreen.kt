@@ -81,6 +81,7 @@ import cn.neeto.stockpot.ui.components.PotSheet
 import cn.neeto.stockpot.ui.components.SheetActions
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.MoneyStyle
+import cn.neeto.stockpot.ui.theme.PotCardShape
 
 private fun projectEntries(ledger: Ledger, projectId: String): List<Entry> =
     ledger.entries.filter { it.projectId == projectId && it.countsTowardTotals }
@@ -380,7 +381,7 @@ fun ProjectDetailScreen(
                 items(rows, key = { it.id }) { entry ->
                     Box(
                         Modifier
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(PotCardShape)
                             .background(colors.panel),
                     ) {
                         EntryRow(entry = entry, onClick = { onOpenEntry(entry) })

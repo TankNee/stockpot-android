@@ -66,6 +66,7 @@ import cn.neeto.stockpot.ui.components.SheetField
 import cn.neeto.stockpot.ui.components.rememberHaptics
 import cn.neeto.stockpot.ui.components.overlayBottomPadding
 import cn.neeto.stockpot.ui.theme.LocalPotColors
+import cn.neeto.stockpot.ui.theme.PotCardShape
 
 /** 内置类型：顺序决定分组与选择页的顺序，`credit` 单独当负债看。 */
 val walletKinds: List<Pair<String, String>> = listOf(
@@ -228,7 +229,7 @@ fun WalletKindScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(PotCardShape)
                         .background(colors.panel)
                         .clickable { customOpen = true }
                         .padding(horizontal = 14.dp, vertical = 16.dp),

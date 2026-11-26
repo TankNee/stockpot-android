@@ -63,6 +63,7 @@ import cn.neeto.stockpot.ui.components.SectionTitle
 import cn.neeto.stockpot.ui.components.rememberHaptics
 import cn.neeto.stockpot.ui.components.overlayBottomPadding
 import cn.neeto.stockpot.ui.theme.LocalPotColors
+import cn.neeto.stockpot.ui.theme.PotCardShape
 
 /** 底部那颗「换」离系统导航条 12dp；这一页没有 tab 胶囊，不用再往它上面躲。 */
 private val ActionBarLift = 12.dp
@@ -506,7 +507,7 @@ private fun SwapRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(PotCardShape)
             .background(colors.panel)
             .clickable { onToggle() }
             .padding(start = 12.dp, end = 14.dp, top = 12.dp, bottom = 12.dp),
