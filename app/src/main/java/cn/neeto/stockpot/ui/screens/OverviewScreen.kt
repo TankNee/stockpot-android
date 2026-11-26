@@ -54,6 +54,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
 import cn.neeto.stockpot.ui.components.PotPillButton
 import cn.neeto.stockpot.ui.components.PillTone
+import cn.neeto.stockpot.ui.components.QuietButton
 import cn.neeto.stockpot.ui.components.DailyBars
 import cn.neeto.stockpot.ui.components.DailyLine
 import cn.neeto.stockpot.ui.components.Donut
@@ -130,13 +131,10 @@ fun OverviewScreen(
                             PrimaryButton("记一笔", onAddEntry)
                             GhostButton("导入账单", onOpenImport)
                         }
-                        Spacer(Modifier.height(14.dp))
-                        PotPillButton(
-                            text = "先看看示例账本",
-                            icon = Icons.Outlined.AutoAwesome,
-                            tone = PillTone.Ghost,
-                            onClick = onLoadDemo,
-                        )
+                        Spacer(Modifier.height(6.dp))
+                        // 第三颗退成纯文字：同字号、同高度，只是没有底色，
+                        // 不再是另起一套「小胶囊」，三个按钮看着像一家人
+                        QuietButton("先看看示例账本", onLoadDemo, Icons.Outlined.AutoAwesome)
                     }
                 }
             }

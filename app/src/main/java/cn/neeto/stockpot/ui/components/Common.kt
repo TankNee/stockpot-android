@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronLeft
@@ -44,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
@@ -625,6 +628,63 @@ fun SheetField(
     }
 }
 
+/**
+ * 弹层里的一格输入框：没有标签，占位文字就是提示，高度固定 [height]。
+ *
+ * 之前弹层里直接塞 Material 的 TextField：默认 56dp 高、内部 16dp 内边距，
+ * 而字只有 13~14sp，一个输入框比旁边的按钮高出一大截，占位文字和真正输入进去的
+ * 字号还不一样。这里统一成 46dp、圆角 12dp、15sp，占位文字和正文同字号，
+ * 旁边配的按钮也按这个高度做，一行三个元素才对得齐。
+ */
+@Composable
+fun InlineField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    leadingIcon: ImageVector? = null,
+    height: Dp = 46.dp,
+) {
+    val colors = LocalPotColors.current
+    val textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.ink)
+    androidx.compose.foundation.text.BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .height(height)
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.panel2),
+        singleLine = true,
+        textStyle = textStyle,
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(colors.brand),
+        decorationBox = { inner ->
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (leadingIcon != null) {
+                    Icon(
+                        leadingIcon,
+                        contentDescription = null,
+                        tint = colors.ink3,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (value.isEmpty()) {
+                        // 占位和正文同一个 style，只是颜色退一层
+                        Text(placeholder, style = textStyle, color = colors.ink3, maxLines = 1)
+                    }
+                    inner()
+                }
+            }
+        },
+    )
+}
+
 /* --------------------------- 金额自动缩放 / 图标按钮 --------------------------- */
 
 /**
@@ -690,6 +750,11 @@ fun PotPillButton(
     modifier: Modifier = Modifier,
     tone: PillTone = PillTone.Tinted,
     enabled: Boolean = true,
+    /**
+     * 铺满一行、内容居中。用来和上面的卡片左右对齐：只包着字的胶囊单独摆在
+     * 一张整宽卡片下面，看着像掉了半截，长度和边距都对不上。
+     */
+    fullWidth: Boolean = false,
     onClick: () -> Unit,
 ) {
     val colors = LocalPotColors.current
@@ -705,12 +770,17 @@ fun PotPillButton(
     }
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(11.dp))
+            .then(if (fullWidth) Modifier.fillMaxWidth() else Modifier)
+            .clip(RoundedCornerShape(12.dp))
             .background(bg)
             .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(
+                horizontal = if (fullWidth) 14.dp else 12.dp,
+                // 整宽的那颗要跟旁边的卡片一样高（卡片是 14dp 上下内边距）
+                vertical = if (fullWidth) 14.dp else 8.dp,
+            ),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        horizontalArrangement = if (fullWidth) Arrangement.Center else Arrangement.spacedBy(5.dp),
     ) {
         Icon(icon, contentDescription = null, tint = fg.copy(alpha = if (enabled) 1f else 0.4f), modifier = Modifier.size(15.dp))
         Text(
@@ -799,31 +869,50 @@ fun IconSegmented(
 /**
  * 主按钮：实心品牌色 + 图标。全站就这一种「确定要做的事」。
  * 图标不是装饰：同一个按钮在深色背景下，光靠文字几乎看不出边界。
+ *
+ * 内边距、圆角、图标尺寸和字号跟 [GhostButton] / [QuietButton] 完全一致，
+ * 三颗并排时只有底色和字色不同，不会一个高一个矮、一个大一个小。
  */
 @Composable
 fun PrimaryButton(
     text: String,
     onClick: () -> Unit,
     icon: ImageVector? = Icons.Outlined.Check,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val colors = LocalPotColors.current
     val haptics = rememberHaptics()
     Row(
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(colors.brand)
-            .clickable {
+            // 不可用时退成淡品牌色 + 淡字，而不是半透明的一坨深绿：
+            // 后者在浅色底上像块脏斑，字也糊在一起
+            .background(if (enabled) colors.brand else colors.brandTint)
+            .clickable(enabled = enabled) {
                 haptics(Haptic.Confirm)
                 onClick()
             }
-            .padding(horizontal = 18.dp, vertical = 13.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, tint = colors.onBrand, modifier = Modifier.size(17.dp))
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (enabled) colors.onBrand else colors.brandInk.copy(alpha = 0.4f),
+                modifier = Modifier.size(16.dp),
+            )
         }
-        Text(text, color = colors.onBrand, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+        Text(
+            text,
+            color = if (enabled) colors.onBrand else colors.brandInk.copy(alpha = 0.4f),
+            fontSize = 15.sp,
+            lineHeight = 20.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+        )
     }
 }
 
@@ -852,6 +941,37 @@ fun GhostButton(
         if (icon != null) {
             Icon(icon, contentDescription = null, tint = colors.ink2, modifier = Modifier.size(16.dp))
         }
-        Text(text, color = colors.ink2, fontSize = 15.sp, maxLines = 1)
+        Text(text, color = colors.ink2, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 1)
+    }
+}
+
+/**
+ * 三级动作：没有底色，只有图标 + 字，字号和内边距与主/次按钮一致，只把颜色退一层。
+ * 空账本那种「主 / 次 / 还有一件事」的三连，第三颗要是另起一套胶囊样式，
+ * 三个按钮看着就是三套设计。
+ */
+@Composable
+fun QuietButton(
+    text: String,
+    onClick: () -> Unit,
+    icon: ImageVector? = null,
+) {
+    val colors = LocalPotColors.current
+    val haptics = rememberHaptics()
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable {
+                haptics(Haptic.Tap)
+                onClick()
+            }
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = colors.ink3, modifier = Modifier.size(16.dp))
+        }
+        Text(text, color = colors.ink3, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 1)
     }
 }

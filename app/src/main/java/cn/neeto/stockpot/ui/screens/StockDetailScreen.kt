@@ -276,31 +276,34 @@ fun StockDetailScreen(
                 }
             }
 
-            item(key = "actions") {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PotCard(
-                        modifier = Modifier.weight(1f),
-                        // 水平内边距要和其它卡片一致：之前只给了 vertical，
-                        // 铅笔图标贴着卡片左边缘，和「这笔持仓」的文字对不上
-                        padding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-                        onClick = onEditHolding,
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Outlined.Edit, contentDescription = null, tint = colors.ink2, modifier = Modifier.size(17.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                if (isFund) "改成本 / 份额" else "改成本 / 股数",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = colors.ink2,
-                            )
-                        }
+            item(key = "edit") {
+                PotCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    // 水平内边距要和其它卡片一致：之前只给了 vertical，
+                    // 铅笔图标贴着卡片左边缘，和「这笔持仓」的文字对不上
+                    padding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                    onClick = onEditHolding,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Outlined.Edit, contentDescription = null, tint = colors.ink2, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (isFund) "改成本 / 份额" else "改成本 / 股数",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.ink2,
+                        )
                     }
                 }
-                Spacer(Modifier.height(4.dp))
+            }
+
+            // 删除单独占一行、铺满整宽：之前缩在卡片左下角的一颗小胶囊，
+            // 左边距和上面卡片一样但右边差一大截，看着像没对齐
+            item(key = "remove") {
                 PotPillButton(
                     text = "从这个账户里删掉",
                     icon = Icons.Outlined.DeleteOutline,
                     tone = PillTone.Danger,
+                    fullWidth = true,
                     onClick = { confirmRemove = true },
                 )
             }

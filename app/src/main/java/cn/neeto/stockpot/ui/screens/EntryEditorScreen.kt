@@ -82,11 +82,14 @@ import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Project
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.LinkOff
 import cn.neeto.stockpot.ui.components.CategoryGlyph
 import cn.neeto.stockpot.ui.components.effectiveIcon
 import cn.neeto.stockpot.ui.components.IconSegmented
 import cn.neeto.stockpot.ui.components.IconOption
+import cn.neeto.stockpot.ui.components.InlineField
+import cn.neeto.stockpot.ui.components.PrimaryButton
 import cn.neeto.stockpot.ui.components.PotPillButton
 import cn.neeto.stockpot.ui.components.PillTone
 import cn.neeto.stockpot.ui.components.Amount
@@ -440,17 +443,16 @@ fun EntryEditorScreen(
                 Spacer(Modifier.height(18.dp))
                 MetaCard(existing)
                 Spacer(Modifier.height(14.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    PotPillButton(
-                        text = "删除这笔",
-                        icon = Icons.Outlined.DeleteOutline,
-                        tone = PillTone.Danger,
-                        onClick = {
-                            onDelete(existing)
-                            onDismiss()
-                        },
-                    )
-                }
+                PotPillButton(
+                    text = "删除这笔",
+                    icon = Icons.Outlined.DeleteOutline,
+                    tone = PillTone.Danger,
+                    fullWidth = true,
+                    onClick = {
+                        onDelete(existing)
+                        onDismiss()
+                    },
+                )
             }
             Spacer(Modifier.height(8.dp))
             }
@@ -1009,7 +1011,7 @@ private fun PlainField(
         value = value,
         onValueChange = onValueChange,
         modifier = Modifier.fillMaxWidth(),
-        placeholder = { Text(placeholder, color = colors.ink3, fontSize = 14.sp) },
+        placeholder = { Text(placeholder, color = colors.ink3, fontSize = 15.sp) },
         singleLine = true,
         shape = RoundedCornerShape(12.dp),
         textStyle = MaterialTheme.typography.bodyMedium,
@@ -1084,48 +1086,30 @@ fun CategoryPickerDialog(
                 color = colors.ink3,
             )
         }
-        Spacer(Modifier.height(10.dp))
-        TextField(
+        Spacer(Modifier.height(12.dp))
+        InlineField(
             value = query,
             onValueChange = { query = it },
+            placeholder = "搜索分类",
+            leadingIcon = Icons.Outlined.Search,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("搜索分类", color = colors.ink3, fontSize = 14.sp) },
-            singleLine = true,
-            shape = RoundedCornerShape(10.dp),
-            textStyle = MaterialTheme.typography.bodySmall,
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = colors.panel2,
-                unfocusedContainerColor = colors.panel2,
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                cursorColor = colors.brand,
-            ),
         )
 
         if (onAddCategory != null) {
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextField(
+                InlineField(
                     value = newName,
                     onValueChange = { newName = it },
+                    placeholder = "新建分类",
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("新建分类", color = colors.ink3, fontSize = 14.sp) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(10.dp),
-                    textStyle = MaterialTheme.typography.bodySmall,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = colors.panel2,
-                        unfocusedContainerColor = colors.panel2,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        cursorColor = colors.brand,
-                    ),
                 )
                 Spacer(Modifier.width(8.dp))
-                PotPillButton(
+                PrimaryButton(
                     text = "添加",
                     icon = Icons.Outlined.Add,
                     enabled = newName.isNotBlank(),
+                    modifier = Modifier.height(46.dp),
                     onClick = {
                         val name = newName.trim()
                         onAddCategory(name)

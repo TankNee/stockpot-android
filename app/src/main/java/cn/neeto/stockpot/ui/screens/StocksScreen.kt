@@ -579,18 +579,26 @@ fun StockAccountScreen(
             }
 
             item(key = "actions") {
-                Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                // 两颗并排、等宽等高：之前是上下两行各自包着字的胶囊，
+                // 左边贴着卡片边距、右边差一大截，长短还各不相同
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     PotPillButton(
                         text = "重命名账户",
                         icon = Icons.Outlined.Edit,
                         tone = PillTone.Ghost,
+                        modifier = Modifier.weight(1f),
+                        fullWidth = true,
                         onClick = { renaming = true },
                     )
-                    Spacer(Modifier.height(6.dp))
                     PotPillButton(
                         text = "删除这个账户",
                         icon = Icons.Outlined.DeleteOutline,
                         tone = PillTone.Danger,
+                        modifier = Modifier.weight(1f),
+                        fullWidth = true,
                         onClick = { confirmDelete = true },
                     )
                 }
@@ -1042,6 +1050,8 @@ internal fun HoldingEditorScreen(
                     text = "删除这只持仓",
                     icon = Icons.Outlined.DeleteOutline,
                     tone = PillTone.Danger,
+                    // 上面几行输入框是整宽的，这颗也得整宽，不然缩在左下角像没对齐
+                    fullWidth = true,
                     onClick = {
                         // 删完就回上一页；改代码时内部也会调 onDelete，那条路不该跳走
                         onDelete(existing.first.id)

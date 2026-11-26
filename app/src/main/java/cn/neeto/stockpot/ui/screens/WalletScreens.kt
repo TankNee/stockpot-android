@@ -519,6 +519,8 @@ fun WalletEditorScreen(
                     text = "删除这个账户",
                     icon = Icons.Outlined.DeleteOutline,
                     tone = PillTone.Danger,
+                    // 跟上面几张整宽卡片对齐，不要缩在左下角
+                    fullWidth = true,
                     onClick = { confirmDelete = true },
                 )
 
