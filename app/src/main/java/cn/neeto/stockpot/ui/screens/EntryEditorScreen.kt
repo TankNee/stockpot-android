@@ -1035,8 +1035,8 @@ private fun PlainField(
  * 分类选择：网格平铺，先只看顶级分类，进组之后才是子分类。
  *
  * 之前是一棵树：一行一个名字，分类一多就得一路滑，一屏还看不到几个。
- * 现在 4 列铺格子，顶上只放顶级分类；带子分类的那格右上角有个小箭头，
- * 点进去换成这一组的子分类，第一格是「整个」——不挑子分类就点它。
+ * 现在 4 列铺格子，顶上只放顶级分类；点到有子分类的那格就换成这一组的子分类，
+ * 第一格是「整个」——不挑子分类就点它。
  * 搜索时不分层，分组和子分类混在一起平铺，靠下面那行小字标出属于哪一组。
  *
  * 面板高度是算好的固定值：内容多少、键盘起落都不再影响它。
@@ -1181,7 +1181,6 @@ fun CategoryPickerDialog(
                         def = def,
                         note = note,
                         active = selected == def.path,
-                        expandable = !searching && note.isEmpty() && !children.isNullOrEmpty(),
                         // 点带子分类的那格是「进去看看」，不是选中；
                         // 里面的第一格「整个」才是用它自己
                         onClick = {
@@ -1248,31 +1247,31 @@ private fun CategoryTile(
     def: CategoryDef,
     note: String,
     active: Boolean,
-    expandable: Boolean,
     onClick: () -> Unit,
 ) {
     val colors = LocalPotColors.current
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(13.dp)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(84.dp)
+            // 紧凑一点：图标和上下边各留一口气就行，格子多了才不会一屏只看到三行
+            .height(70.dp)
             .clip(shape)
             .background(if (active) colors.brandTint else colors.panel2)
             .border(1.dp, if (active) colors.brand else Color.Transparent, shape)
             .clickable { onClick() },
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 7.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 5.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
             CategoryGlyph(
                 key = def.effectiveIcon(),
-                size = 22.dp,
+                size = 20.dp,
                 tint = if (active) colors.brandInk else colors.brand,
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
                 text = def.name,
                 fontSize = 12.sp,
@@ -1290,15 +1289,6 @@ private fun CategoryTile(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-        }
-        // 右上角一个小箭头：这格点进去还有一层
-        if (expandable) {
-            Icon(
-                Icons.Outlined.ChevronRight,
-                contentDescription = "有子分类",
-                tint = colors.ink3,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 5.dp, end = 4.dp).size(13.dp),
-            )
         }
     }
 }
