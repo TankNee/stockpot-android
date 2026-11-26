@@ -461,6 +461,8 @@ fun StatBlock(
 @Composable
 fun PotSheet(
     onDismiss: () -> Unit,
+    /** 面板高度。给了就固定住，内容多少、键盘起落都不再改变弹层高度。 */
+    height: Dp? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = LocalPotColors.current
@@ -478,6 +480,8 @@ fun PotSheet(
                 .fillMaxWidth()
                 // 键盘和手势条取最大值，别叠两层留白
                 .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+                // 高度在 ime padding 之内：键盘弹起时整块面板抬起来，大小不变
+                .then(if (height != null) Modifier.height(height) else Modifier)
                 .padding(horizontal = 18.dp)
                 .padding(bottom = 16.dp),
             content = content,

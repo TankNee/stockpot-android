@@ -1,11 +1,11 @@
 package cn.neeto.stockpot.ui.screens
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
@@ -23,8 +24,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,9 +67,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -1028,11 +1032,15 @@ private fun PlainField(
 }
 
 /**
- * 分类选择：树状、可折叠、带图标，也能现场新建一个。
+ * 分类选择：网格平铺，先只看顶级分类，进组之后才是子分类。
  *
- * 原来是一张平铺的缩进列表：分类一多就得一路滑，还看不出哪条是哪个分组的。
- * 现在分组行左边那个箭头单独管折叠（点名字仍然是选中），分组和子分类都画图标。
- * 搜索时强制展开，命中哪个分组就直接铺出来。
+ * 之前是一棵树：一行一个名字，分类一多就得一路滑，一屏还看不到几个。
+ * 现在 4 列铺格子，顶上只放顶级分类；带子分类的那格右上角有个小箭头，
+ * 点进去换成这一组的子分类，第一格是「整个」——不挑子分类就点它。
+ * 搜索时不分层，分组和子分类混在一起平铺，靠下面那行小字标出属于哪一组。
+ *
+ * 面板高度是算好的固定值：内容多少、键盘起落都不再影响它。
+ * 之前高度跟着内容走，点一下输入框整块面板窜到全屏、打一个字又缩回半屏。
  */
 @Composable
 fun CategoryPickerDialog(
@@ -1046,42 +1054,57 @@ fun CategoryPickerDialog(
     val colors = LocalPotColors.current
     var query by remember { mutableStateOf("") }
     var newName by remember { mutableStateOf("") }
-    // 默认全展开；分类多的人自己收起来，选择页记住这一次的折叠状态就够了
-    var collapsed by remember { mutableStateOf(setOf<String>()) }
+    // 进到了哪一组；null 表示还停在顶级分类那一屏
+    var openGroup by remember { mutableStateOf<String?>(null) }
+    val needle = query.trim()
 
-    val tree = remember(ledger.categories, kind, query) {
+    val tree = remember(ledger.categories, kind) {
         ledger.categoryTree()
+            .filter { (group, _) -> kind == Kind.TRANSFER || group.kind.isEmpty() || group.kind == kind }
             .map { (group, children) ->
-                val groupOk = kind == Kind.TRANSFER || group.kind.isEmpty() || group.kind == kind
-                val visibleChildren = children.filter { child ->
-                    (kind == Kind.TRANSFER || child.kind.isEmpty() || child.kind == kind) &&
-                        (query.isEmpty() || child.name.contains(query) || group.name.contains(query))
+                group to children.filter { child ->
+                    kind == Kind.TRANSFER || child.kind.isEmpty() || child.kind == kind
                 }
-                Triple(group, if (groupOk) group else null, visibleChildren)
-            }
-            .filter { (group, g, children) ->
-                query.isEmpty() || (g != null && group.name.contains(query)) || children.isNotEmpty()
             }
     }
-    val searching = query.isNotEmpty()
+    val current = tree.firstOrNull { (group, _) -> group.name == openGroup }
+    val searching = needle.isNotEmpty()
 
-    // LazyColumn 的 items 不能嵌套，先把树摊平成一行一个的描述
-    val rows = remember(tree, collapsed, searching) {
-        buildList {
-            tree.forEach { (group, groupDef, children) ->
-                val open = searching || group.name !in collapsed
-                add(PickerRow.Group(group, groupDef != null, open, children.size))
-                if (open) children.forEach { add(PickerRow.Child(it)) }
+    // 每一格：分类本身 + 副标题。子分类在搜索里标出所属分组，进组后第一格是「整个」。
+    val tiles: List<Pair<CategoryDef, String>> = when {
+        searching -> buildList {
+            tree.forEach { (group, children) ->
+                if (group.name.contains(needle)) add(group to "")
+                children
+                    .filter { it.name.contains(needle) || group.name.contains(needle) }
+                    .forEach { add(it to group.name) }
             }
         }
+        current != null -> listOf(current.first to "整个") + current.second.map { it to "" }
+        else -> tree.map { it.first to "" }
     }
 
-    PotSheet(onDismiss = onDismiss) {
+    val density = LocalDensity.current
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val ime = with(density) { WindowInsets.ime.getBottom(this).toDp() }
+    // 有键盘时铺满键盘上方，没有键盘时占屏幕三分之二。两个值都只跟屏幕和键盘有关，
+    // 跟命中了多少条无关，所以打字过程中面板不会忽高忽低。
+    val panelHeight = if (ime > 0.dp) {
+        (screenHeight - ime - 44.dp).coerceAtLeast(300.dp)
+    } else {
+        screenHeight * 0.66f
+    }
+
+    PotSheet(onDismiss = onDismiss, height = panelHeight) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("选择分类", style = MaterialTheme.typography.titleLarge, color = colors.ink)
             Spacer(Modifier.weight(1f))
             Text(
-                "${tree.size} 个分组",
+                when {
+                    searching -> "${tiles.size} 个结果"
+                    current != null -> "${current.second.size} 个子分类"
+                    else -> "${tree.size} 个分类"
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.ink3,
             )
@@ -1089,7 +1112,11 @@ fun CategoryPickerDialog(
         Spacer(Modifier.height(12.dp))
         InlineField(
             value = query,
-            onValueChange = { query = it },
+            onValueChange = {
+                query = it
+                // 一开始搜就退回顶级那一屏，不然清空关键词后会莫名其妙停在上次那组里
+                if (it.isNotEmpty()) openGroup = null
+            },
             placeholder = "搜索分类",
             leadingIcon = Icons.Outlined.Search,
             modifier = Modifier.fillMaxWidth(),
@@ -1120,165 +1147,158 @@ fun CategoryPickerDialog(
         }
 
         Spacer(Modifier.height(10.dp))
-        if (rows.isEmpty()) {
-            Text(
-                if (searching) "没有叫「$query」的分类" else "还没有分类",
-                style = MaterialTheme.typography.bodyMedium,
-                color = colors.ink3,
-                modifier = Modifier.padding(vertical = 28.dp),
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+        if (tiles.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentAlignment = Alignment.Center,
             ) {
-                items(
-                    items = rows,
-                    // 分组路径和子分类路径不会重（categoryTree 已经按 path 去过重），
-                    // 前缀分开是防止同名分组/子分类撞上
-                    key = { row ->
-                        when (row) {
-                            is PickerRow.Group -> "g:" + row.def.path
-                            is PickerRow.Child -> "c:" + row.def.path
-                        }
-                    },
-                ) { row ->
-                    when (row) {
-                        is PickerRow.Group -> PickerGroupRow(
-                            group = row.def,
-                            selectable = row.selectable,
-                            open = row.open,
-                            childCount = row.childCount,
-                            active = selected == row.def.path,
-                            onToggle = {
-                                collapsed = if (row.def.name in collapsed) {
-                                    collapsed - row.def.name
-                                } else {
-                                    collapsed + row.def.name
-                                }
-                            },
-                            onPick = { onPick(row.def.path) },
-                        )
-                        is PickerRow.Child -> PickerChildRow(
-                            child = row.def,
-                            active = selected == row.def.path,
-                            onPick = { onPick(row.def.path) },
+                Text(
+                    if (searching) "没有叫「$needle」的分类" else "还没有分类",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.ink3,
+                )
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(4),
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 4.dp),
+            ) {
+                // 进组之后顶上给一条返回，别让人只能靠系统返回键
+                if (current != null && !searching) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        GroupHeader(
+                            group = current.first,
+                            onBack = { openGroup = null },
                         )
                     }
                 }
+                items(tiles, key = { it.first.path }) { (def, note) ->
+                    val children = tree.firstOrNull { it.first.path == def.path }?.second
+                    CategoryTile(
+                        def = def,
+                        note = note,
+                        active = selected == def.path,
+                        expandable = !searching && note.isEmpty() && !children.isNullOrEmpty(),
+                        // 点带子分类的那格是「进去看看」，不是选中；
+                        // 里面的第一格「整个」才是用它自己
+                        onClick = {
+                            if (!searching && note.isEmpty() && !children.isNullOrEmpty()) {
+                                openGroup = def.name
+                            } else {
+                                onPick(def.path)
+                            }
+                        },
+                    )
+                }
             }
         }
+
+        // 在子分类里按返回，退回到顶级那一屏，而不是把整个弹层关掉
+        BackHandler(enabled = openGroup != null) { openGroup = null }
     }
 }
 
-private sealed interface PickerRow {
-    data class Group(
-        val def: CategoryDef,
-        val selectable: Boolean,
-        val open: Boolean,
-        val childCount: Int,
-    ) : PickerRow
-
-    data class Child(val def: CategoryDef) : PickerRow
-}
-
+/** 进组后的那行：返回 + 组名。子分类数量在右上角，这里不再重复。 */
 @Composable
-private fun PickerGroupRow(
-    group: CategoryDef,
-    selectable: Boolean,
-    open: Boolean,
-    childCount: Int,
-    active: Boolean,
-    onToggle: () -> Unit,
-    onPick: () -> Unit,
-) {
+private fun GroupHeader(group: CategoryDef, onBack: () -> Unit) {
     val colors = LocalPotColors.current
-    val angle by animateFloatAsState(if (open) 90f else 0f, tween(180), label = "picker-chevron")
-
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (active) colors.brandTint else Color.Transparent)
-            .clickable(enabled = selectable) { onPick() }
-            .padding(end = 10.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 箭头只管折叠，点名字才是选中
         Box(
             modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .clickable { onToggle() },
+                .size(32.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(colors.panel2)
+                .clickable { onBack() },
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Outlined.ChevronRight,
-                contentDescription = if (open) "收起" else "展开",
-                tint = colors.ink3,
-                modifier = Modifier.size(17.dp).rotate(angle),
+                Icons.AutoMirrored.Outlined.ArrowBack,
+                contentDescription = "返回顶级分类",
+                tint = colors.ink2,
+                modifier = Modifier.size(16.dp),
             )
         }
-        CategoryGlyph(
-            key = group.effectiveIcon(),
-            size = 18.dp,
-            tint = if (active) colors.brandInk else colors.brand,
-        )
         Spacer(Modifier.width(9.dp))
+        CategoryGlyph(key = group.effectiveIcon(), size = 16.dp, tint = colors.brand)
+        Spacer(Modifier.width(6.dp))
         Text(
-            text = group.name,
+            group.name,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
-            color = if (selectable) colors.ink else colors.ink3,
+            color = colors.ink,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        if (active) {
-            Icon(Icons.Outlined.Check, contentDescription = "已选", tint = colors.brandInk, modifier = Modifier.size(16.dp))
-        } else {
-            Text(
-                "$childCount",
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.ink3,
-            )
-        }
-        Spacer(Modifier.width(6.dp))
     }
 }
 
+/**
+ * 网格里的一格：图标在上、名字在下，可选一行小字。
+ * 选中用品牌色描边 + 淡底，和设置里的图标网格、方向分段是同一套选中态。
+ */
 @Composable
-private fun PickerChildRow(
-    child: CategoryDef,
+private fun CategoryTile(
+    def: CategoryDef,
+    note: String,
     active: Boolean,
-    onPick: () -> Unit,
+    expandable: Boolean,
+    onClick: () -> Unit,
 ) {
     val colors = LocalPotColors.current
-    Row(
+    val shape = RoundedCornerShape(14.dp)
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (active) colors.brandTint else Color.Transparent)
-            .clickable { onPick() }
-            .padding(start = 40.dp, end = 10.dp, top = 9.dp, bottom = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .height(84.dp)
+            .clip(shape)
+            .background(if (active) colors.brandTint else colors.panel2)
+            .border(1.dp, if (active) colors.brand else Color.Transparent, shape)
+            .clickable { onClick() },
     ) {
-        CategoryGlyph(
-            key = child.effectiveIcon(),
-            size = 16.dp,
-            tint = if (active) colors.brandInk else colors.ink3,
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = child.name,
-            style = MaterialTheme.typography.bodySmall,
-            color = if (active) colors.brandInk else colors.ink2,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (active) {
-            Icon(Icons.Outlined.Check, contentDescription = "已选", tint = colors.brandInk, modifier = Modifier.size(15.dp))
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 7.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            CategoryGlyph(
+                key = def.effectiveIcon(),
+                size = 22.dp,
+                tint = if (active) colors.brandInk else colors.brand,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = def.name,
+                fontSize = 12.sp,
+                fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
+                color = if (active) colors.brandInk else colors.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (note.isNotEmpty()) {
+                Text(
+                    text = note,
+                    fontSize = 10.sp,
+                    color = if (active) colors.brandInk.copy(alpha = 0.65f) else colors.ink3,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        // 右上角一个小箭头：这格点进去还有一层
+        if (expandable) {
+            Icon(
+                Icons.Outlined.ChevronRight,
+                contentDescription = "有子分类",
+                tint = colors.ink3,
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 5.dp, end = 4.dp).size(13.dp),
+            )
         }
     }
 }
