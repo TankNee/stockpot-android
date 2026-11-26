@@ -48,6 +48,36 @@ data class EntryFilter(
         month: String,
         day: String? = null,
         query: String = "",
+    ): List<Entry> = collect(entries, month, day, query, monthScoped = true)
+
+    /**
+     * 搜索：**不限月份**，把当月命中和别的月份分开返回。
+     *
+     * 之前搜索也只看当月，想找上个月那笔咖啡得先翻月再搜一遍。
+     * 现在一次给出全部，页面上先摆这个月的，再一条分隔线，下面才是其他月份。
+     * 一旦填了自定义区间（跨月那种），月份本身就不参与了，这时候分组没意义，
+     * 全部算在 [SearchSplit.thisMonth] 里平铺。
+     */
+    fun search(
+        entries: List<Entry>,
+        month: String,
+        day: String? = null,
+        query: String = "",
+    ): SearchSplit {
+        if (query.isBlank() || hasRange) {
+            return SearchSplit(apply(entries, month, day, query), emptyList())
+        }
+        val all = collect(entries, month, day, query, monthScoped = false)
+        val (mine, rest) = all.partition { Fmt.monthOf(it.date) == month }
+        return SearchSplit(mine, rest)
+    }
+
+    private fun collect(
+        entries: List<Entry>,
+        month: String,
+        day: String?,
+        query: String,
+        monthScoped: Boolean,
     ): List<Entry> {
         val needle = query.trim()
         // 上下限填反了也照常工作，别让人对着空列表发愣
@@ -56,7 +86,13 @@ data class EntryFilter(
 
         return entries.asSequence()
             .filter { !it.archived }
-            .filter { if (hasRange) inRange(it.date) else Fmt.monthOf(it.date) == month }
+            .filter {
+                when {
+                    !monthScoped -> true
+                    hasRange -> inRange(it.date)
+                    else -> Fmt.monthOf(it.date) == month
+                }
+            }
             .filter { day == null || it.date == day }
             .filter { kind == ALL || it.kind == kind }
             // 类目按全名比：`餐饮/外卖` 和 `餐饮` 是两个不同的筛选口径，
@@ -133,4 +169,17 @@ data class EntryFilter(
             return if (value <= 0) null else value
         }
     }
+}
+
+/**
+ * 搜索结果的两段：当前浏览的月份、其他月份。
+ *
+ * 拆成两个列表是为了让页面先摆本月的命中，再画一条分隔线接其他月份——
+ * 搜「咖啡」的时候，上个月那几笔不该挤在本月结果前面。
+ */
+data class SearchSplit(
+    val thisMonth: List<Entry>,
+    val others: List<Entry>,
+) {
+    val all: List<Entry> get() = thisMonth + others
 }

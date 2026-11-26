@@ -173,6 +173,22 @@ object Fmt {
     fun shortDate(date: String): String =
         if (date.length >= 10) "${date.substring(5, 7)}-${date.substring(8, 10)}" else date
 
+    /**
+     * 搜索结果里的时间：`11-22 14:23`。
+     *
+     * 跨月搜索没有日期分块顶着，每一行得自己说清是哪天；时间可空（手记的账多半没填）。
+     * 不是今年的再补上年份 `25-11-22`，否则「11-22」到底是哪年说不清。
+     */
+    fun dateTimeLabel(date: String, time: String): String {
+        val year = today().take(4)
+        val day = when {
+            date.length < 10 -> date
+            date.startsWith(year) -> shortDate(date)
+            else -> date.substring(2, 4) + "-" + date.substring(5, 7) + "-" + date.substring(8, 10)
+        }
+        return if (time.isNotBlank()) "$day $time" else day
+    }
+
     private val stampFormatter: DateTimeFormatter =
         DateTimeFormatter.ofPattern("MM-dd HH:mm", Locale.CHINA)
 

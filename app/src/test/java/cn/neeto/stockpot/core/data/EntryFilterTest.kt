@@ -161,4 +161,48 @@ class EntryFilterTest {
         assertEquals(null, EntryFilter.cents("0"))
         assertEquals(null, EntryFilter.cents("abc"))
     }
+
+    @Test
+    fun `搜索不限月份，本月和前几个月份分开返回`() {
+        // 搜「瑞幸」只在本月；搜「上月」只在上个月
+        val mine = EntryFilter().search(entries, "2026-11", query = "瑞幸")
+        assertEquals(listOf("1"), mine.thisMonth.map { it.id })
+        assertTrue(mine.others.isEmpty())
+
+        val other = EntryFilter().search(entries, "2026-11", query = "上月")
+        assertTrue(other.thisMonth.isEmpty())
+        assertEquals(listOf("4"), other.others.map { it.id })
+    }
+
+    @Test
+    fun `搜索时本月排在前面，其他月份按同样规则排`() {
+        // 「50」命中本月的 1、5 和不该被捞出来的别的月份；这里换成一条跨月的金额
+        val all = listOf(
+            entry("a", "2026-11-02", 5_000, counterparty = "咖啡"),
+            entry("b", "2026-10-02", 5_000, counterparty = "咖啡"),
+            entry("c", "2026-09-02", 5_000, counterparty = "咖啡"),
+        )
+        val split = EntryFilter().search(all, "2026-11", query = "咖啡")
+        assertEquals(listOf("a"), split.thisMonth.map { it.id })
+        assertEquals(listOf("b", "c"), split.others.map { it.id })
+        // all 保持「本月在前」的顺序，列表直接照这个渲染
+        assertEquals(listOf("a", "b", "c"), split.all.map { it.id })
+    }
+
+    @Test
+    fun `搜索没词、或者给了自定义区间时不分段`() {
+        val blank = EntryFilter().search(entries, "2026-11", query = " ")
+        assertEquals(listOf("3", "2", "5", "1"), blank.thisMonth.map { it.id })
+        assertTrue(blank.others.isEmpty())
+
+        val ranged = EntryFilter(from = "2026-10-01", to = "2026-11-05").search(entries, "2026-11", query = "瑞幸")
+        assertEquals(listOf("1"), ranged.thisMonth.map { it.id })
+        assertTrue(ranged.others.isEmpty())
+    }
+
+    @Test
+    fun `搜索时段里其他条件照样生效`() {
+        val split = EntryFilter(kind = Kind.INCOME).search(entries, "2026-11", query = "工资")
+        assertEquals(listOf("3"), split.all.map { it.id })
+    }
 }

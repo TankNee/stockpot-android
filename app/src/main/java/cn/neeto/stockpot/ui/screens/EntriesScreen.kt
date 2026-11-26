@@ -77,6 +77,7 @@ import cn.neeto.stockpot.ui.components.Chip
 import cn.neeto.stockpot.ui.components.DayHeader
 import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.EmptyState
+import cn.neeto.stockpot.ui.components.Hairline
 import cn.neeto.stockpot.ui.components.LedgerLoading
 import cn.neeto.stockpot.ui.components.EntryRow
 import cn.neeto.stockpot.ui.components.GhostButton
@@ -148,9 +149,12 @@ fun EntriesScreen(
             .map { it.key }
     }
 
-    val entries = remember(ledger.entries, month, dayFilter, filter, query) {
-        filter.apply(ledger.entries, month, dayFilter, query)
+    // 搜索时不再只看当月：本月命中先摆，其余月份另起一段（见 SearchSplit）
+    val searching = query.isNotBlank() && !filter.hasRange
+    val split = remember(ledger.entries, month, dayFilter, filter, query) {
+        filter.search(ledger.entries, month, dayFilter, query)
     }
+    val entries = split.all
     // 和列表保持一致：筛完之后这一屏到底花了多少
     val viewExpense = remember(entries) {
         entries.filter { it.kind == Kind.EXPENSE && it.countsTowardTotals }
@@ -168,11 +172,21 @@ fun EntriesScreen(
             onShift = ::shift,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
             trailing = {
-                Text(
-                    text = Fmt.yuan(viewExpense),
-                    style = MoneyStyle.copy(fontSize = 14.sp),
-                    color = colors.expense,
-                )
+                if (searching) {
+                    // 搜出来的是跨月的一堆，报总额容易被当成「这个月花了这么多」，
+                    // 报笔数最不容易看歪
+                    Text(
+                        text = "${entries.size} 笔",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = colors.ink3,
+                    )
+                } else {
+                    Text(
+                        text = Fmt.yuan(viewExpense),
+                        style = MoneyStyle.copy(fontSize = 14.sp),
+                        color = colors.expense,
+                    )
+                }
             },
         )
 
@@ -241,7 +255,50 @@ fun EntriesScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 108.dp),
                 ) {
-            if (byAmount) {
+            if (searching) {
+                // 本月先摆，其他月份用一条分隔线接在后面。每行右侧都写具体日期 + 时间，
+                // 没有日期分块也能看清是哪天
+                if (split.others.isNotEmpty() && split.thisMonth.isNotEmpty()) {
+                    // 本月一条都没有时就别再摆一个「0 笔」的空段，直接从其他月份开始
+                    item(key = "search-this") {
+                        SearchSectionLabel(
+                            text = monthLabel(month),
+                            count = split.thisMonth.size,
+                            topLine = false,
+                        )
+                    }
+                }
+                items(split.thisMonth, key = { it.id }, contentType = { "entry" }) { entry ->
+                    Box(Modifier.background(colors.panel)) {
+                        EntryRow(
+                            entry = entry,
+                            showDateTime = true,
+                            onClick = { onOpenEntry(entry) },
+                            onLongClick = { onLongPressEntry(entry) },
+                        )
+                    }
+                }
+                if (split.others.isNotEmpty()) {
+                    item(key = "search-others") {
+                        SearchSectionLabel(
+                            text = "其他月份",
+                            count = split.others.size,
+                            topLine = true,
+                        )
+                    }
+                    items(split.others, key = { it.id }, contentType = { "entry" }) { entry ->
+                        Box(Modifier.background(colors.panel)) {
+                            EntryRow(
+                                entry = entry,
+                                showDateTime = true,
+                                onClick = { onOpenEntry(entry) },
+                                onLongClick = { onLongPressEntry(entry) },
+                            )
+                        }
+                    }
+                }
+                item(key = "tail") { Spacer(Modifier.height(6.dp)) }
+            } else if (byAmount) {
                 items(entries, key = { it.id }, contentType = { "entry" }) { entry ->
                     Box(Modifier.background(colors.panel)) {
                         EntryRow(
@@ -479,7 +536,9 @@ private fun EntryFilterSheet(
     var preset by remember { mutableStateOf(presetOf(initial)) }
 
     val matched = remember(draft, entries, month, day, query) {
-        draft.apply(entries, month, day, query).size
+        // 搜索是不分月的（见 EntryFilter.search），计数也得按同一口径，
+        // 否则弹层里报「3 条」、点开却有 8 条
+        draft.search(entries, month, day, query).all.size
     }
 
     fun syncAmount() {
@@ -838,6 +897,41 @@ private fun presetOf(filter: EntryFilter): String {
         from == LocalDate.parse(today).minusDays(29).toString() && to == today -> "30d"
         from == today.take(8) + "01" && to == today -> "thisMonth"
         else -> "custom"
+    }
+}
+
+/* ------------------------------ 搜索结果的分段 ------------------------------ */
+
+/** `2026-11` → `11月`。段标题里用，和月份选择器上的写法保持一致。 */
+private fun monthLabel(month: String): String {
+    val tail = month.substringAfter('-', "").trimStart('0')
+    return if (tail.isEmpty()) month else "${tail}月"
+}
+
+/**
+ * 搜索结果的段落标题：左边是段名，右边是这一段的笔数。
+ *
+ * 「其他月份」那段上面多画一条细线——上面一屏都是本月的命中，
+ * 不给条线缝一下，滑下去会以为还是同一个月。
+ */
+@Composable
+private fun SearchSectionLabel(text: String, count: Int, topLine: Boolean) {
+    val colors = LocalPotColors.current
+    Column(Modifier.fillMaxWidth()) {
+        if (topLine) {
+            Spacer(Modifier.height(10.dp))
+            Hairline(Modifier.padding(horizontal = 16.dp))
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text, style = MaterialTheme.typography.labelMedium, color = colors.ink3)
+            Spacer(Modifier.weight(1f))
+            Text("$count 笔", style = MaterialTheme.typography.labelSmall, color = colors.ink3)
+        }
     }
 }
 

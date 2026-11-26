@@ -39,6 +39,12 @@ fun EntryRow(
     entry: Entry,
     modifier: Modifier = Modifier,
     showDate: Boolean = false,
+    /**
+     * 搜索结果用：右侧写「11-22 14:23」。
+     * 跨月搜索时列表里没有日期小标题顶着，每行得自己交代是哪天、
+     * 跨年还要交代是哪年（见 [Fmt.dateTimeLabel]）。
+     */
+    showDateTime: Boolean = false,
     projectName: String? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
@@ -128,6 +134,7 @@ fun EntryRow(
                 strikethrough = fullyRefunded,
             )
             val meta = when {
+                showDateTime -> Fmt.dateTimeLabel(entry.date, entry.time)
                 showDate -> Fmt.shortDate(entry.date)
                 entry.time.isNotEmpty() -> entry.time
                 entry.archived -> "已收起"
