@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -72,7 +71,6 @@ import cn.neeto.stockpot.core.model.StockAccount
 import cn.neeto.stockpot.core.stock.QuoteClient
 import cn.neeto.stockpot.core.stock.StockSearchHit
 import kotlinx.coroutines.delay
-import cn.neeto.stockpot.ui.components.SheetHeader
 import cn.neeto.stockpot.ui.components.PotPillButton
 import cn.neeto.stockpot.ui.components.PillTone
 import cn.neeto.stockpot.ui.components.EmptyState
@@ -962,22 +960,28 @@ internal fun HoldingEditorScreen(
             .background(colors.canvas)
             .imePadding(),
     ) {
-        Column(Modifier.statusBarsPadding()) {
-            SheetHeader(
-                title = if (existing == null) "添加持仓" else "编辑持仓",
-                subtitle = "$accountName · 成本价和${qtyLabel}自己维护，行情自动更新",
-                onClose = onBack,
-                trailing = { SaveChip(enabled = canSave) { submit() } },
-            )
-        }
+        // 和账户页、个股详情页同一套顶栏：返回箭头 + 标题 + 右上角保存。
+        // 这里不补 statusBarsPadding：叠加页的状态栏那一条由外层顶栏占着，
+        // 再补一次会多出一截空白。
+        EditorBar(
+            title = if (existing == null) "添加持仓" else "编辑持仓",
+            onBack = onBack,
+            onConfirm = { submit() },
+            confirmEnabled = canSave,
+        )
 
         Column(
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = 16.dp),
         ) {
-            Spacer(Modifier.height(14.dp))
+            Text(
+                "$accountName · 成本价和${qtyLabel}自己维护，行情自动更新",
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.ink3,
+            )
+            Spacer(Modifier.height(12.dp))
 
             SheetField(
                 label = "代码或名称",
