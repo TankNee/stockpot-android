@@ -35,6 +35,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import cn.neeto.stockpot.core.model.CategoryDef
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.builtinIcon
+import cn.neeto.stockpot.core.util.Diag
 import cn.neeto.stockpot.ui.components.CategoryGlyph
 import cn.neeto.stockpot.ui.components.CategoryIconGrid
 import cn.neeto.stockpot.ui.components.categoryIcon
@@ -91,6 +93,7 @@ fun CategoriesScreen(
     onDelete: (CategoryDef) -> Unit,
 ) {
     val colors = LocalPotColors.current
+    LaunchedEffect(Unit) { Diag.step("categories.open", "count=${ledger.categories.size}") }
     var query by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<CategoryDef?>(null) }
     var adding by remember { mutableStateOf(false) }

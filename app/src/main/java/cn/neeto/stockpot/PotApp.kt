@@ -1,7 +1,7 @@
 package cn.neeto.stockpot
 
 import android.app.Application
-import cn.neeto.stockpot.core.util.CrashLog
+import cn.neeto.stockpot.core.util.Diag
 import cn.neeto.stockpot.core.data.LedgerStore
 import cn.neeto.stockpot.core.net.ApiClient
 import cn.neeto.stockpot.core.net.SyncManager
@@ -42,8 +42,13 @@ class PotApp : Application() {
     override fun onCreate() {
         super.onCreate()
         // 最先装上：后面任何一步崩了都能留下堆栈
-        CrashLog.install(this)
+        Diag.install(this)
         store = LedgerStore(this)
+        // 导出诊断时补一句规模，判断是不是数据量的问题
+        Diag.stats = {
+            val data = store.data.value
+            "分类 ${data.categories.size} / 规则 ${data.rules.size} / 条目 ${data.entries.size} / 账户 ${data.accounts.size}"
+        }
         settings = SettingsStore(this)
         auth = AuthStore(this)
         val api = ApiClient()

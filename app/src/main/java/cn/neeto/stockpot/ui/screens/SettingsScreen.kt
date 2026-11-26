@@ -101,6 +101,10 @@ import cn.neeto.stockpot.ui.components.SheetGrabber
 import cn.neeto.stockpot.ui.components.PotSheet
 import cn.neeto.stockpot.ui.components.SheetActions
 import cn.neeto.stockpot.ui.components.rememberHaptics
+import cn.neeto.stockpot.core.util.Diag
+import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.platform.LocalContext
 import cn.neeto.stockpot.ui.theme.LocalPotColors
 import cn.neeto.stockpot.ui.theme.PotPalette
 
@@ -118,6 +122,7 @@ fun SettingsScreen(
     onOpenTheme: () -> Unit,
 ) {
     val colors = LocalPotColors.current
+    val context = LocalContext.current
     val ledger by vm.ledger.collectAsStateWithLifecycle()
     val prefs by vm.prefs.collectAsStateWithLifecycle()
     val cloud by vm.cloud.collectAsStateWithLifecycle()
@@ -322,6 +327,14 @@ fun SettingsScreen(
                     subtitle = "${ledger.entries.size} 笔账目 · 导入账单、导出备份、清空流水",
                     icon = Icons.Outlined.SaveAlt,
                     onClick = onOpenData,
+                )
+                HorizontalDivider(color = colors.line.copy(alpha = 0.55f))
+                // 闪退时不用连电脑：导出一个 txt 发过来就能看到堆栈和崩溃前干了什么
+                SettingsRow(
+                    title = "导出诊断日志",
+                    subtitle = "闪退、卡住时导出这个文件发过来，里面是堆栈和最近的操作",
+                    icon = Icons.Outlined.BugReport,
+                    onClick = { Diag.share(context) },
                 )
             }
         }

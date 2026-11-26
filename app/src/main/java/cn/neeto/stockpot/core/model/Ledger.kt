@@ -385,7 +385,14 @@ fun Ledger.normalized(): Ledger {
             }
         },
         categories = deduped,
-        rules = if (rules.isEmpty()) defaultRules() else rules.filter { it.pattern.isNotEmpty() },
+        rules = if (rules.isEmpty()) {
+            defaultRules()
+        } else {
+            rules.filter { it.pattern.isNotEmpty() }
+                // 界面用 id+关键词+分类 当列表 key；这里去重一次，
+                // 老账本里空 id 的规则不会在滚动时把列表打崩
+                .distinctBy { it.id + "\u0000" + it.pattern + "\u0000" + it.category }
+        },
         wallets = wallets.map { if (it.kind == "credit" && it.balance > 0) it.copy(balance = -it.balance) else it },
         schemaVersion = Ledger.SCHEMA_VERSION,
     )

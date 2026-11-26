@@ -111,6 +111,7 @@ import cn.neeto.stockpot.ui.components.EditorAnim
 import cn.neeto.stockpot.ui.components.EditorReveal
 import cn.neeto.stockpot.ui.components.Haptic
 import cn.neeto.stockpot.ui.components.LocalRowAnchors
+import cn.neeto.stockpot.core.util.Diag
 import cn.neeto.stockpot.ui.components.LocalCategoryIcons
 import cn.neeto.stockpot.ui.components.effectiveIcon
 import cn.neeto.stockpot.ui.components.PotConfirmSheet
@@ -556,6 +557,8 @@ fun PotRoot(
                             },
                             label = "tab",
                         ) { current ->
+                            // 页面切换记一笔：闪退后能看出是从哪一页崩的
+                            LaunchedEffect(current) { Diag.step("route", current) }
                             stateHolder.SaveableStateProvider(current) {
                                 // 叠加页自己带返回头（EditorBar 那种），顶栏让位。
                                 // 但顶栏只塌到状态栏那一条线为止，正好替叠加页占住状态栏的高度，

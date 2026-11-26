@@ -7,4 +7,6 @@
     <external-files-path name="updates" path="updates/" />
     <!-- 外置存储不可用时 Updater 会退回应用私有目录，这里也放出来，免得安装时找不到文件 -->
     <files-path name="updates_internal" path="updates/" />
+    <!-- 诊断日志：只有用户点「导出」时才临时授权给分享目标，别的应用拿不到 -->
+    <cache-path name="diag" path="diag/" />
 </paths>

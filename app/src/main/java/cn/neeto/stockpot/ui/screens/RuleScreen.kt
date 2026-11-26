@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -29,6 +29,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.neeto.stockpot.core.model.Kind
+import cn.neeto.stockpot.core.util.Diag
 import cn.neeto.stockpot.core.model.Ledger
 import cn.neeto.stockpot.core.model.Rule
 import cn.neeto.stockpot.ui.components.PotCard
@@ -75,6 +77,18 @@ fun RulesScreen(
     var showPicker by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<Rule?>(null) }
     var deleting by remember { mutableStateOf<Rule?>(null) }
+
+    // 进页面就记一笔：闪退后能从日志看出是哪个页面、当时多少条
+    LaunchedEffect(Unit) {
+        Diag.step("rules.open", "count=${ledger.rules.size} query=0")
+    }
+    // 同一个 id 出现两次会让 LazyColumn 抛 Key was already used，先记下来
+    LaunchedEffect(ledger.rules) {
+        val dup = ledger.rules.groupBy { it.id }.filterValues { it.size > 1 }
+        if (dup.isNotEmpty()) {
+            Diag.step("rules.dupIds", dup.keys.joinToString(separator = ",") { it.ifBlank { "<empty>" } })
+        }
+    }
 
     val keyword = query.trim()
     val rules = remember(ledger.rules, keyword) {
@@ -192,7 +206,16 @@ fun RulesScreen(
                         modifier = Modifier.padding(start = 4.dp, top = 2.dp),
                     )
                 }
-                items(rules, key = { it.id }) { rule ->
+                itemsIndexed(
+                    items = rules,
+                    // 光用 id 不够：合并/导入可能带来空 id 或重复 id，撞上就崩。
+                    // 加上关键词和分类，完全一样的两条才算同一条。
+                    key = { _, rule -> "r:" + rule.id + "|" + rule.pattern + "|" + rule.category },
+                ) { index, rule ->
+                    // 每滚出一条新的就记一笔：崩在哪一行，日志里最后一条就是哪儿
+                    LaunchedEffect(index) {
+                        Diag.step("rules.row", "#$index id=${rule.id.take(10)} cat=${rule.category}")
+                    }
                     RuleRow(
                         rule = rule,
                         onEdit = { editing = rule },
