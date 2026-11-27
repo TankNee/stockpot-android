@@ -4,8 +4,11 @@ import cn.neeto.stockpot.core.importer.BillParser
 import cn.neeto.stockpot.core.importer.ImportEngine
 import cn.neeto.stockpot.core.importer.ParsedBill
 import cn.neeto.stockpot.core.model.Entry
+import cn.neeto.stockpot.core.model.Holding
 import cn.neeto.stockpot.core.model.Kind
 import cn.neeto.stockpot.core.model.Ledger
+import cn.neeto.stockpot.core.model.Stock
+import cn.neeto.stockpot.core.model.StockAccount
 import cn.neeto.stockpot.core.model.Wallet
 import cn.neeto.stockpot.core.model.emptyLedger
 import cn.neeto.stockpot.core.model.normalized
@@ -536,5 +539,42 @@ class LedgerTest {
         assertEquals(-884_142L, fixed.wallets[0].signedBalance())
         // 非信用卡的负余额（比如透支）不动
         assertEquals(-50_000L, Wallet(id = "w3", name = "余额", kind = "debit", balance = -50_000).signedBalance())
+    }
+
+    // 同步合并会留下「有持仓、没这只票」的孤儿：列表里看不到，市值和持仓数却还算着它
+    @Test
+    fun `找不到股票的持仓在载入时被清掉`() {
+        val ledger = emptyLedger().copy(
+            stocks = listOf(Stock(id = "sh601899", code = "601899", name = "紫金矿业")),
+            stockAccounts = listOf(
+                StockAccount(
+                    id = "acc1",
+                    name = "财通证券",
+                    entries = mapOf(
+                        "sh601899" to Holding(costE4 = 2_937_500, shares = 200.0),
+                        "sh600000" to Holding(costE4 = 10_000_000, shares = 1000.0),
+                    ),
+                ),
+            ),
+        )
+        val fixed = ledger.normalized().stockAccounts.single()
+        assertEquals(setOf("sh601899"), fixed.entries.keys)
+        assertEquals(1, fixed.holdingCount)
+    }
+
+    @Test
+    fun `持仓都对得上时原样保留`() {
+        val ledger = emptyLedger().copy(
+            stocks = listOf(Stock(id = "sh601899", code = "601899")),
+            stockAccounts = listOf(
+                StockAccount(
+                    id = "acc1",
+                    name = "财通证券",
+                    entries = mapOf("sh601899" to Holding(costE4 = 2_937_500, shares = 200.0)),
+                ),
+            ),
+        )
+        val fixed = ledger.normalized()
+        assertEquals(200.0, fixed.stockAccounts.single().entries["sh601899"]!!.shares, 0.0)
     }
 }

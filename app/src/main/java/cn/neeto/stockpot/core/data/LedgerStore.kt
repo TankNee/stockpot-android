@@ -137,7 +137,14 @@ class LedgerStore(context: Context) {
         val stored = runCatching { db.load() }.onFailure { Log.e(TAG, "打开账本数据库失败", it) }.getOrNull()
         val hasRows = runCatching { !db.isEmpty() }.getOrDefault(false)
         if (stored != null && hasRows) {
-            return stored.normalized()
+            val cleaned = stored.normalized()
+            // 载入时收拾掉的东西（比如找不到股票的孤儿持仓）顺手写回库，
+            // 不然每次启动都要再收拾一遍，推上云端的那份也一直带着它
+            if (cleaned != stored) {
+                runCatching { db.writeDiff(stored, cleaned) }
+                    .onFailure { Log.w(TAG, "整理后的账本写回失败", it) }
+            }
+            return cleaned
         }
         // 空库：可能是新装，也可能是从 0.16 及以前升上来——老版本留着一份 JSON
         val legacy = readLegacy(legacyFile) ?: readLegacy(legacyBackup)

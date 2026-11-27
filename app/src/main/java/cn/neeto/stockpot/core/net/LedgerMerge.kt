@@ -118,11 +118,14 @@ object LedgerMerge {
         base.forEach { merged[it.id] = it }
         other.forEach { incoming ->
             val current = merged[incoming.id]
-            merged[incoming.id] = if (current == null) {
-                incoming
-            } else {
-                // base 的持仓优先，另一边多出来的补上
-                current.copy(entries = incoming.entries + current.entries)
+            merged[incoming.id] = when {
+                current == null -> incoming
+                // 同一个账户两边都动过：整份取 updatedAt 更新的那份。
+                // 以前是把两边的 entries 并起来，看着「谁都不丢」，实际上删不掉东西——
+                // 在本机删掉的持仓，会被云端那份旧快照原样补回来，删了跟没删一样。
+                // 账户里票不多，整份比时间戳更简单也更符合直觉：最后一次改的赢。
+                incoming.updatedAt > current.updatedAt -> incoming
+                else -> current
             }
         }
         return merged.values

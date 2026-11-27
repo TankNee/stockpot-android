@@ -140,6 +140,7 @@ class LedgerMergeTest {
     @Test
     fun `券商账户合并时持仓跟着账户走`() {
         val local = Ledger(
+            stocks = listOf(Stock(id = "sh600000", code = "600000")),
             stockAccounts = listOf(
                 StockAccount(
                     id = "acc1",
@@ -149,6 +150,7 @@ class LedgerMergeTest {
             ),
         )
         val remote = Ledger(
+            stocks = listOf(Stock(id = "hk00700", code = "00700")),
             stockAccounts = listOf(
                 StockAccount(
                     id = "acc2",
@@ -160,6 +162,39 @@ class LedgerMergeTest {
         val merged = LedgerMerge.merge(local, remote, preferRemote = false, deleted = emptyMap())
         assertEquals(2, merged.stockAccounts.size)
         assertEquals(95_500L, merged.stockAccounts.first { it.id == "acc1" }.entries["sh600000"]?.costE4)
+    }
+
+    @Test
+    fun `账户里的持仓被删掉，云端的老快照不会把它补回来`() {
+        val local = Ledger(
+            stocks = listOf(Stock(id = "sh601899", code = "601899")),
+            stockAccounts = listOf(
+                StockAccount(
+                    id = "acc1",
+                    name = "财通证券",
+                    entries = mapOf("sh601899" to Holding(costE4 = 2_937_500, shares = 200.0)),
+                    updatedAt = "2026-11-27T01:00:00Z",
+                ),
+            ),
+        )
+        val remote = Ledger(
+            stocks = listOf(Stock(id = "sh601899", code = "601899"), Stock(id = "sh600000", code = "600000")),
+            stockAccounts = listOf(
+                StockAccount(
+                    id = "acc1",
+                    name = "财通证券",
+                    entries = mapOf(
+                        "sh601899" to Holding(costE4 = 2_937_500, shares = 200.0),
+                        "sh600000" to Holding(costE4 = 10_000_000, shares = 1000.0),
+                    ),
+                    updatedAt = "2026-11-26T20:00:00Z",
+                ),
+            ),
+        )
+        val merged = LedgerMerge.merge(local, remote, preferRemote = false, deleted = emptyMap())
+        val account = merged.stockAccounts.single()
+        assertEquals(setOf("sh601899"), account.entries.keys)
+        assertEquals(1, account.holdingCount)
     }
 
     @Test

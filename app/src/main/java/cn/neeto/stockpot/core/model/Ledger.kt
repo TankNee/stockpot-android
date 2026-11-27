@@ -365,6 +365,7 @@ fun emptyLedger(): Ledger = Ledger(
  * - 补上顶级分类缺失的图标
  * - 过滤掉 id 为空的行
  * - 信用卡余额一律记成负数（欠款），老账本里填成正数的顺手翻过来
+ * - 持仓如果找不到对应的股票（股票池里没有它），直接丢掉
  */
 fun Ledger.normalized(): Ledger {
     val seededCategories = if (categories.isEmpty()) defaultCategories() else categories
@@ -375,6 +376,17 @@ fun Ledger.normalized(): Ledger {
     val deduped = withIcons.distinctBy { it.parent + "\u0000" + it.name }
     val kept = entries.filter { it.id.isNotEmpty() }
     val ids = kept.map { it.id }.toHashSet()
+    // 持仓是挂在股票 id 上的，股票池里没有这只票就没有名字、也没有行情。
+    // 这种「孤儿持仓」是同步合并留下的：一端删了持仓顺手把股票也清了，
+    // 另一端的老快照把持仓补回来，票却没跟着回来——列表里看不见，市值和「N 个持仓」却还算着它。
+    val stockIds = stocks.map { it.id }.toHashSet()
+    val keptAccounts = stockAccounts.map { account ->
+        if (account.entries.keys.all { it in stockIds }) {
+            account
+        } else {
+            account.copy(entries = account.entries.filterKeys { it in stockIds })
+        }
+    }
     return copy(
         // 合并、删除之后可能留下指向不存在条目的退款配对，载入时一次性松开
         entries = kept.map { entry ->
@@ -394,6 +406,7 @@ fun Ledger.normalized(): Ledger {
                 .distinctBy { it.id + "\u0000" + it.pattern + "\u0000" + it.category }
         },
         wallets = wallets.map { if (it.kind == "credit" && it.balance > 0) it.copy(balance = -it.balance) else it },
+        stockAccounts = keptAccounts,
         schemaVersion = Ledger.SCHEMA_VERSION,
     )
 }
